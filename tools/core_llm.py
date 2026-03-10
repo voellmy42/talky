@@ -42,7 +42,11 @@ class LLMFormatter:
             "system": self._build_system_prompt(language),
             "prompt": raw_transcription,
             "stream": False,
-            "keep_alive": "5m" # Keep model loaded in memory for 5 minutes after request
+            "keep_alive": "5m", # Keep model loaded in memory for 5 minutes after request
+            "options": {
+                "temperature": 0.0,
+                "num_predict": 512
+            }
         }
 
         try:

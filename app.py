@@ -107,12 +107,12 @@ class OverlayWindow:
         self._label.setStringValue_(text)
         self._window.setAlphaValue_(1.0)
         self._window.orderFrontRegardless()
-        if "Listening" in text:
+        if "Listening" in text or "Warming" in text:
             self._start_pulse()
 
     def update_text(self, text):
         self._label.setStringValue_(text)
-        if "Listening" not in text:
+        if "Listening" not in text and "Warming" not in text:
             self._stop_pulse()
             self._window.setAlphaValue_(1.0)
 
@@ -293,6 +293,8 @@ class TalkyApp:
                 self._on_record_stop,
                 self._on_processing,
                 self._on_idle,
+                self._on_warmup,
+                self._on_ready,
                 self.status_bar.get_language,
             ),
             daemon=True,
@@ -314,6 +316,12 @@ class TalkyApp:
     def _on_idle(self):
         _Dispatcher.dispatch_to_main(self._main_idle)
 
+    def _on_warmup(self):
+        _Dispatcher.dispatch_to_main(self._main_warmup)
+
+    def _on_ready(self):
+        _Dispatcher.dispatch_to_main(self._main_idle)
+
     # -- main-thread UI mutations --
 
     def _main_record_start(self):
@@ -330,6 +338,10 @@ class TalkyApp:
     def _main_idle(self):
         self.status_bar.set_recording(False)
         self.overlay.hide()
+
+    def _main_warmup(self):
+        self.status_bar.set_recording(False)
+        self.overlay.show("  Warming up models...")
 
     def _quit(self):
         self._app.terminate_(None)

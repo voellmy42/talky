@@ -24,7 +24,9 @@ class STTTool:
             audio_buffer,
             language=language,
             task="transcribe",
-            beam_size=5,
+            beam_size=1,
+            condition_on_previous_text=False,
+            initial_prompt="Hello, this is a dictated sentence.",
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=300)
         )

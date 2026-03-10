@@ -16,7 +16,18 @@ def main():
 
     print("--- Models loaded. Starting app... ---", flush=True)
 
-    def pipeline_loop(on_record_start, on_record_stop, on_processing, on_idle, get_language):
+    def pipeline_loop(on_record_start, on_record_stop, on_processing, on_idle, on_warmup, on_ready, get_language):
+        on_warmup()
+        import numpy as np
+        print("--- Warming up models ---", flush=True)
+        stt_tool.transcribe(np.zeros(16000, dtype=np.float32))
+        try:
+            llm_tool.format_text("warmup phrase")
+        except Exception:
+            pass
+        print("--- Warmup complete ---", flush=True)
+        on_ready()
+
         def _on_start():
             chime.play_start()
             on_record_start()
