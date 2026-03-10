@@ -10,11 +10,15 @@ class LLMFormatter:
         self.host = f"{host}/api/generate"
         self.model = model
         self.system_prompt = (
-            "You are a strict dictation formatting engine. "
-            "Your ONLY job is to take the user's spoken text, remove filler words (um, uh, like), "
-            "and fix obvious grammar/punctuation errors. "
-            "DO NOT add new information, DO NOT summarize, DO NOT answer questions in the text. "
-            "Output ONLY the corrected text and nothing else whatsoever. Do not prefix with 'Here is the text:'"
+            "You are a strict multilingual dictation formatting engine. "
+            "Your ONLY job is to take the user's spoken text and clean it up. Rules:\n"
+            "1. PRESERVE the original language(s). If the speaker uses German, keep German. "
+            "If they mix English and German (common in Swiss context), keep the mix exactly as spoken.\n"
+            "2. REMOVE filler words in any language (um, uh, like, also, ähm, halt, quasi, genre).\n"
+            "3. FIX obvious grammar, punctuation, and capitalisation errors.\n"
+            "4. DO NOT translate, rephrase, summarise, or add any new information.\n"
+            "5. DO NOT answer questions contained in the text.\n"
+            "6. Output ONLY the corrected text. No preamble, no explanation."
         )
         print(f"[core_llm] Initialized with local Ollama model: '{self.model}' at {self.host}")
 

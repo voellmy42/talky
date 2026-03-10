@@ -18,21 +18,30 @@ class OutputInjector:
             
         print("[core_output] Injecting formatted payload...")
         try:
-            # 1. Save current clipboard content (optional, but polite)
+            # 1. Save current clipboard content
             old_clipboard = pyperclip.paste()
             
             # 2. Copy the new text
             pyperclip.copy(text)
             
-            # 3. Simulate Ctrl+V to paste
-            # Note: On Mac this should be 'command', 'v'. 
-            # PyAutoGUI's hotkey handles modifier keys depending on OS, but we force 'ctrl' for Windows.
-            # If running cross-platform, sys.platform checks are ideal. Here we assume Windows per user OS.
-            pyautogui.hotkey('ctrl', 'v')
+            import sys
+            import threading
             
-            # 4. Optional: We skip restoring the clipboard immediately 
-            # because the OS needs a tiny fraction of a second to complete the paste event before the clipboard changes back.
-            # Leaving the text in the clipboard acts as a good fallback if focus was lost.
+            # 3. Simulate Cmd+V / Ctrl+V to paste
+            if sys.platform == 'darwin':
+                pyautogui.hotkey('command', 'v')
+            else:
+                pyautogui.hotkey('ctrl', 'v')
+            
+            # 4. Restore original clipboard after a short delay
+            #    (OS needs time to complete the paste event)
+            def _restore():
+                time.sleep(0.2)
+                try:
+                    pyperclip.copy(old_clipboard)
+                except Exception:
+                    pass
+            threading.Thread(target=_restore, daemon=True).start()
             
             print("[core_output] Injection successful.")
             return True
