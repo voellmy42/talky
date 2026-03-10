@@ -10,13 +10,13 @@ from tools import core_audio_feedback as chime
 def main():
     print("--- Initializing Talky ---", flush=True)
 
-    stt_tool = STTTool(model_size="base", compute_type="int8")
+    stt_tool = STTTool(model_size="small", compute_type="int8")
     llm_tool = LLMFormatter(host="http://localhost:11434", model="qwen2.5:3b")
     output_tool = OutputInjector()
 
     print("--- Models loaded. Starting app... ---", flush=True)
 
-    def pipeline_loop(on_record_start, on_record_stop, on_processing, on_idle):
+    def pipeline_loop(on_record_start, on_record_stop, on_processing, on_idle, get_language):
         def _on_start():
             chime.play_start()
             on_record_start()
@@ -40,13 +40,14 @@ def main():
                 on_processing()
                 start_time = time.time()
 
-                raw_text = stt_tool.transcribe(audio_buffer)
+                lang = get_language()
+                raw_text = stt_tool.transcribe(audio_buffer, language=lang)
                 if not raw_text:
                     print("[pipeline] No speech detected.", flush=True)
                     on_idle()
                     continue
 
-                cleaned_text = llm_tool.format_text(raw_text)
+                cleaned_text = llm_tool.format_text(raw_text, language=lang)
                 if not cleaned_text:
                     on_idle()
                     continue

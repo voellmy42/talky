@@ -147,20 +147,33 @@ class _MenuTarget(AppKit.NSObject):
     """NSObject target for menu item actions."""
 
     _quit_fn = None
+    _lang_fn = None
 
     @objc.typedSelector(b"v@:@")
     def quitApp_(self, sender):
         if self._quit_fn:
             self._quit_fn()
 
+    @objc.typedSelector(b"v@:@")
+    def selectLang_(self, sender):
+        if self._lang_fn:
+            self._lang_fn(sender.representedObject())
+
 
 class StatusBarController:
     """Menu bar icon and dropdown."""
 
+    LANGUAGES = [
+        ("de", "Deutsch"),
+        ("en", "English"),
+    ]
+
     def __init__(self, on_quit):
         self._on_quit = on_quit
+        self._language = "en"  # default
         self._menu_target = _MenuTarget.alloc().init()
         self._menu_target._quit_fn = on_quit
+        self._menu_target._lang_fn = self._set_language
 
         self._status_item = AppKit.NSStatusBar.systemStatusBar().statusItemWithLength_(
             AppKit.NSVariableStatusItemLength
@@ -196,6 +209,27 @@ class StatusBarController:
 
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
+        # ---- Language selector ----
+        lang_header = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Language", None, ""
+        )
+        lang_header.setEnabled_(False)
+        menu.addItem_(lang_header)
+
+        self._lang_items = {}
+        for code, label in self.LANGUAGES:
+            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                f"  {label}", "selectLang:", ""
+            )
+            item.setTarget_(self._menu_target)
+            item.setRepresentedObject_(code)
+            self._lang_items[code] = item
+            menu.addItem_(item)
+
+        self._update_lang_checks()
+
+        menu.addItem_(AppKit.NSMenuItem.separatorItem())
+
         quit_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Quit Talky", "quitApp:", "q"
         )
@@ -203,6 +237,21 @@ class StatusBarController:
         menu.addItem_(quit_item)
 
         self._status_item.setMenu_(menu)
+
+    def _update_lang_checks(self):
+        for code, item in self._lang_items.items():
+            if code == self._language:
+                item.setState_(AppKit.NSControlStateValueOn)
+            else:
+                item.setState_(AppKit.NSControlStateValueOff)
+
+    def _set_language(self, code):
+        self._language = code
+        self._update_lang_checks()
+        print(f"[app] Language set to: {code}", flush=True)
+
+    def get_language(self):
+        return self._language
 
     def set_recording(self, is_recording):
         button = self._status_item.button()
@@ -222,9 +271,10 @@ class TalkyApp:
     """
     Manages the NSApplication lifecycle.
 
-    pipeline_fn(on_record_start, on_record_stop, on_processing, on_idle)
+    pipeline_fn(on_record_start, on_record_stop, on_processing, on_idle, get_language)
         — a callable that runs the dictation loop in a background thread.
         The four callbacks update the UI (dispatched to main thread automatically).
+        get_language returns the currently selected language code.
     """
 
     def __init__(self, pipeline_fn):
@@ -243,6 +293,7 @@ class TalkyApp:
                 self._on_record_stop,
                 self._on_processing,
                 self._on_idle,
+                self.status_bar.get_language,
             ),
             daemon=True,
         )

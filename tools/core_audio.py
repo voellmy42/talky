@@ -41,10 +41,25 @@ class AudioCaptureTool:
             self._tap_thread = threading.Thread(target=self._run_event_tap, daemon=True)
             self._tap_thread.start()
 
+        # Pre-create audio stream (device enumeration done once, fast start/stop later)
+        self._stream = sd.InputStream(
+            samplerate=self.sample_rate,
+            channels=1,
+            dtype='float32',
+            callback=self._audio_callback
+        )
+        print("[core_audio] Audio stream pre-created (not yet active).", flush=True)
+
+    def _start_capture(self):
+        """Start audio capture immediately (called from event tap thread)."""
+        self.is_recording = True
+        self._stream.start()
+
     def _handle_press(self, now):
         if self._mode == 'IDLE':
             self._mode = 'HOLDING'
             self._last_press = now
+            self._start_capture()
             self._start_event.set()
         elif self._mode == 'WAITING_FOR_DOUBLE':
             if now - self._last_release <= self._double_tap_threshold:
@@ -53,6 +68,7 @@ class AudioCaptureTool:
             else:
                 self._mode = 'HOLDING'
                 self._last_press = now
+                self._start_capture()
                 self._start_event.set()
 
     def _handle_release(self, now):
@@ -127,29 +143,24 @@ class AudioCaptureTool:
         self._stop_event.clear()
         self._mode = 'IDLE'
 
+        # Drain any leftover chunks from previous recording
         while not self.q.empty():
             self.q.get()
 
-        print(f"[core_audio] Ready. Hold Fn to dictate, double-tap to toggle.", flush=True)
+        print("[core_audio] Ready. Hold Fn to dictate, double-tap to toggle.", flush=True)
 
+        # Block until fn pressed (stream already started by _handle_press)
         self._start_event.wait()
 
-        self.is_recording = True
         if self.on_record_start:
             self.on_record_start()
         print("[core_audio] Recording...", flush=True)
 
-        stream = sd.InputStream(
-            samplerate=self.sample_rate,
-            channels=1,
-            dtype='float32',
-            callback=self._audio_callback
-        )
-
-        with stream:
-            self._stop_event.wait()
+        # Block until fn released
+        self._stop_event.wait()
 
         self.is_recording = False
+        self._stream.stop()
         if self.on_record_stop:
             self.on_record_stop()
         print("[core_audio] Stopped.", flush=True)

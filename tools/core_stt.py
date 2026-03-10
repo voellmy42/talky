@@ -2,28 +2,29 @@ from faster_whisper import WhisperModel
 import numpy as np
 
 class STTTool:
-    def __init__(self, model_size="base", compute_type="int8"):
+    def __init__(self, model_size="small", compute_type="int8"):
         """
         Preloads the faster-whisper model into memory.
-        Using 'base' and 'int8' for good accuracy with reasonable speed on CPU.
+        Using 'small' and 'int8' for good accuracy with reasonable speed on CPU.
         """
         print(f"[core_stt] Loading WhisperModel '{model_size}' into memory...")
         self.model = WhisperModel(model_size, device="cpu", compute_type=compute_type)
         print("[core_stt] Model loaded.")
 
-    def transcribe(self, audio_buffer: np.ndarray) -> str:
+    def transcribe(self, audio_buffer: np.ndarray, language: str = "en") -> str:
         """
         Transcribes a 1D float32 numpy array into raw text.
+        language: BCP-47 code ('de' or 'en').
         """
         if audio_buffer is None or len(audio_buffer) == 0:
             return ""
             
-        print("[core_stt] Transcribing audio buffer...")
-        # faster-whisper's transcribe method accepts a numpy array directly if it's 16kHz float32
-        # language=None lets Whisper auto-detect (de/en/fr/etc.)
+        print(f"[core_stt] Transcribing audio buffer (lang={language})...")
         segments, info = self.model.transcribe(
             audio_buffer,
-            language=None,
+            language=language,
+            task="transcribe",
+            beam_size=5,
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=300)
         )

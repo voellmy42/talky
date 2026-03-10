@@ -9,20 +9,26 @@ class LLMFormatter:
         """
         self.host = f"{host}/api/generate"
         self.model = model
-        self.system_prompt = (
-            "You are a strict multilingual dictation formatting engine. "
-            "Your ONLY job is to take the user's spoken text and clean it up. Rules:\n"
-            "1. PRESERVE the original language(s). If the speaker uses German, keep German. "
-            "If they mix English and German (common in Swiss context), keep the mix exactly as spoken.\n"
-            "2. REMOVE filler words in any language (um, uh, like, also, ähm, halt, quasi, genre).\n"
-            "3. FIX obvious grammar, punctuation, and capitalisation errors.\n"
-            "4. DO NOT translate, rephrase, summarise, or add any new information.\n"
-            "5. DO NOT answer questions contained in the text.\n"
-            "6. Output ONLY the corrected text. No preamble, no explanation."
-        )
+        self._lang_names = {"de": "German", "en": "English"}
         print(f"[core_llm] Initialized with local Ollama model: '{self.model}' at {self.host}")
 
-    def format_text(self, raw_transcription: str) -> str:
+    def _build_system_prompt(self, language: str) -> str:
+        lang_name = self._lang_names.get(language, "German")
+        fillers = {"de": "ähm, halt, quasi, genre, also", "en": "um, uh, like, you know, so, basically"}
+        filler_list = fillers.get(language, fillers["de"])
+        return (
+            f"You are a strict dictation formatting engine. "
+            f"The user is dictating in {lang_name}. "
+            f"Your output MUST be in {lang_name}. Rules:\n"
+            f"1. REMOVE filler words ({filler_list}).\n"
+            f"2. FIX obvious grammar, punctuation, and capitalisation errors.\n"
+            f"3. DO NOT translate to any other language.\n"
+            f"4. DO NOT rephrase, summarise, or add any new information.\n"
+            f"5. DO NOT answer questions contained in the text.\n"
+            f"6. Output ONLY the corrected text. No preamble, no explanation."
+        )
+
+    def format_text(self, raw_transcription: str, language: str = "en") -> str:
         """
         Sends the raw string to Ollama and returns the cleaned result.
         If Ollama is offline or fails, it returns the raw string as a fallback.
@@ -33,7 +39,7 @@ class LLMFormatter:
         print("[core_llm] Sending text to Ollama for formatting...")
         payload = {
             "model": self.model,
-            "system": self.system_prompt,
+            "system": self._build_system_prompt(language),
             "prompt": raw_transcription,
             "stream": False,
             "keep_alive": "5m" # Keep model loaded in memory for 5 minutes after request
@@ -56,5 +62,5 @@ if __name__ == "__main__":
     llm = LLMFormatter()
     raw = "um, so, like, I was going to the store, you know, to buy some milk."
     print("Raw: ", raw)
-    cleaned = llm.format_text(raw)
+    cleaned = llm.format_text(raw, language="en")
     print("Cleaned: ", cleaned)

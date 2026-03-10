@@ -5,8 +5,8 @@ import time
 class OutputInjector:
     def __init__(self):
         # We assume pyautogui is configured properly for the OS
-        # PyAutoGUI's default pause is 0.1s, we reduce it for lower latency
-        pyautogui.PAUSE = 0.05
+        # Pause between keystrokes — 0.08s balances speed vs modifier reliability
+        pyautogui.PAUSE = 0.08
     
     def inject(self, text: str) -> bool:
         """
@@ -26,12 +26,19 @@ class OutputInjector:
             
             import sys
             import threading
+
+            # 3. Brief pause to let any modifier key state (e.g. Fn release) settle
+            time.sleep(0.15)
             
-            # 3. Simulate Cmd+V / Ctrl+V to paste
-            if sys.platform == 'darwin':
-                pyautogui.hotkey('command', 'v')
-            else:
-                pyautogui.hotkey('ctrl', 'v')
+            # 4. Simulate Cmd+V / Ctrl+V to paste
+            #    Use explicit keyDown/keyUp instead of hotkey() — pyautogui's
+            #    first hotkey() call on macOS can fire 'v' before the modifier
+            #    is registered, producing a bare "v".
+            mod = 'command' if sys.platform == 'darwin' else 'ctrl'
+            pyautogui.keyDown(mod)
+            time.sleep(0.03)
+            pyautogui.press('v')
+            pyautogui.keyUp(mod)
             
             # 4. Restore original clipboard after a short delay
             #    (OS needs time to complete the paste event)
