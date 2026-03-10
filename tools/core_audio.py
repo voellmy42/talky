@@ -5,6 +5,10 @@ import queue
 import time
 import sys
 
+if sys.platform == 'darwin':
+    import AVFoundation
+    import av
+
 
 class AudioCaptureTool:
     def __init__(self, sample_rate=16000, hotkey='fn', on_record_start=None, on_record_stop=None):
@@ -40,20 +44,60 @@ class AudioCaptureTool:
             # Start persistent event tap thread
             self._tap_thread = threading.Thread(target=self._run_event_tap, daemon=True)
             self._tap_thread.start()
+            
+            # Setup AVAudioEngine
+            self.engine = AVFoundation.AVAudioEngine.alloc().init()
+            self.input_node = self.engine.inputNode()
+            self.hw_format = self.input_node.inputFormatForBus_(0)
+            
+            self.resampler = av.AudioResampler(
+                format='flt',
+                layout='mono',
+                rate=self.sample_rate,
+            )
+            
+            def capture_callback(buffer, time_info):
+                if self.is_recording:
+                    try:
+                        frames = buffer.frameLength()
+                        data_ptr = buffer.floatChannelData()
+                        if data_ptr:
+                            ch0_data = data_ptr[0]
+                            audio_np = np.array(ch0_data[:frames], dtype=np.float32)
+                            
+                            frame = av.AudioFrame.from_ndarray(audio_np.reshape(1, -1), format='flt', layout='mono')
+                            frame.sample_rate = int(self.hw_format.sampleRate())
+                            
+                            resampled_frames = self.resampler.resample(frame)
+                            if resampled_frames:
+                                resampled_np = resampled_frames[0].to_ndarray().flatten()
+                                self.q.put(resampled_np.reshape(-1, 1))
+                    except Exception as e:
+                        print(f"[core_audio] Callback error: {e}", flush=True)
 
-        # Pre-create audio stream (device enumeration done once, fast start/stop later)
-        self._stream = sd.InputStream(
-            samplerate=self.sample_rate,
-            channels=1,
-            dtype='float32',
-            callback=self._audio_callback
-        )
-        print("[core_audio] Audio stream pre-created (not yet active).", flush=True)
+            self.input_node.installTapOnBus_bufferSize_format_block_(
+                0, 1024, self.hw_format, capture_callback
+            )
+            self.engine.prepare()
+            print("[core_audio] AVFoundation Audio engine pre-created (not yet active).", flush=True)
+        else:
+            self.engine = None
+            # Pre-create audio stream
+            self._stream = sd.InputStream(
+                samplerate=self.sample_rate,
+                channels=1,
+                dtype='float32',
+                callback=self._audio_callback
+            )
+            print("[core_audio] Audio stream pre-created (not yet active).", flush=True)
 
     def _start_capture(self):
         """Start audio capture immediately (called from event tap thread)."""
         self.is_recording = True
-        self._stream.start()
+        if sys.platform == 'darwin':
+            self.engine.startAndReturnError_(None)
+        else:
+            self._stream.start()
 
     def _handle_press(self, now):
         if self._mode == 'IDLE':
@@ -156,11 +200,20 @@ class AudioCaptureTool:
             self.on_record_start()
         print("[core_audio] Recording...", flush=True)
 
-        # Block until fn released
-        self._stop_event.wait()
+        # Block until fn released, check for keyboard interrupt
+        try:
+            while not self._stop_event.is_set():
+                self._stop_event.wait(0.1)
+        except KeyboardInterrupt:
+            self._stop_event.set()
 
         self.is_recording = False
-        self._stream.stop()
+        
+        if sys.platform == 'darwin':
+            self.engine.pause()
+        else:
+            self._stream.stop()
+            
         if self.on_record_stop:
             self.on_record_stop()
         print("[core_audio] Stopped.", flush=True)
