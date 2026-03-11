@@ -125,6 +125,17 @@ def main():
         import numpy as np
         print("--- Warming up models ---", flush=True)
         stt_tool.transcribe(np.zeros(16000, dtype=np.float32))
+        
+        # Ping Ollama server to ensure it's responsive before formatting
+        import requests
+        for _ in range(10):
+            try:
+                res = requests.get("http://localhost:11434/", timeout=0.5)
+                if res.status_code == 200:
+                    break
+            except Exception:
+                time.sleep(0.5)
+
         try:
             llm_tool.format_text("warmup phrase")
         except Exception:
