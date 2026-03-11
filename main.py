@@ -2,6 +2,7 @@ import time
 import threading
 import subprocess
 import shutil
+import ApplicationServices
 from app import TalkyApp, _Dispatcher
 from tools.core_audio import AudioCaptureTool
 from tools.core_stt import STTTool
@@ -9,12 +10,40 @@ from tools.core_llm import LLMFormatter
 from tools.core_output import OutputInjector
 from tools import core_audio_feedback as chime
 from tools.core_stats import StatsStore
+from tools.core_config import ConfigManager
 from tools.meeting_mode import MeetingSession
 from tools.meeting_llm import MeetingSummarizer
 
 
 _talky_started_ollama = False
 _ollama_start_method = None  # "app" or "serve"
+
+
+def _needs_setup() -> bool:
+    """Check if the setup wizard should be shown."""
+    config = ConfigManager()
+
+    # Always check live dependencies, even if config says setup was completed
+    ax_ok = ApplicationServices.AXIsProcessTrusted()
+
+    ollama_ok = False
+    try:
+        result = subprocess.run(["pgrep", "-x", "ollama"], capture_output=True)
+        if result.returncode == 0:
+            result = subprocess.run(
+                ["ollama", "list"], capture_output=True, text=True, timeout=5
+            )
+            ollama_ok = "qwen2.5:3b" in result.stdout
+    except Exception:
+        pass
+
+    if not ax_ok or not ollama_ok:
+        return True
+
+    if not config.is_setup_complete():
+        return True
+
+    return False
 
 
 def _is_ollama_app_installed():
@@ -116,7 +145,11 @@ def stop_ollama():
 
 def main():
     print("--- Initializing Talky ---", flush=True)
-    ensure_ollama_running()
+
+    needs_setup = _needs_setup()
+
+    if not needs_setup:
+        ensure_ollama_running()
 
     stt_tool = STTTool(model_size="small", compute_type="int8")
     llm_tool = LLMFormatter(host="http://localhost:11434", model="qwen2.5:3b")
@@ -267,7 +300,7 @@ def main():
                 print(f"[pipeline] Error: {e}", flush=True)
                 on_idle()
 
-    app = TalkyApp(pipeline_loop, on_cleanup=stop_ollama)
+    app = TalkyApp(pipeline_loop, on_cleanup=stop_ollama, needs_setup=needs_setup)
     app.run()
 
 

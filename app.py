@@ -1,6 +1,10 @@
 import objc
 import AppKit
+import ApplicationServices
+import subprocess
 import threading
+
+from tools.core_config import ConfigManager
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +262,7 @@ class StatusBarController:
         self._meeting_active = False
         self._is_recording = False
         self._ollama_offline = False
+        self._setup_required = False
 
         button = self._status_item.button()
         button.setImage_(self._icon_idle)
@@ -375,9 +380,16 @@ class StatusBarController:
         self._ollama_offline = offline
         self._update_display()
 
+    def set_setup_required(self, needed: bool):
+        self._setup_required = needed
+        self._update_display()
+
     def _update_display(self):
         button = self._status_item.button()
-        if self._is_recording:
+        if self._setup_required:
+            button.setImage_(self._icon_warning)
+            self._status_menu_item.setTitle_("Status: Setup Required")
+        elif self._is_recording:
             button.setImage_(self._icon_recording)
             self._status_menu_item.setTitle_("Status: Recording...")
         elif self._meeting_active:
@@ -395,6 +407,261 @@ class StatusBarController:
 
 
 # ---------------------------------------------------------------------------
+# Setup wizard
+# ---------------------------------------------------------------------------
+
+class _SetupTarget(AppKit.NSObject):
+    """Action target for setup wizard buttons."""
+
+    _install_model_fn = None
+    _open_accessibility_fn = None
+    _complete_fn = None
+
+    @objc.typedSelector(b"v@:@")
+    def installModel_(self, sender):
+        if self._install_model_fn:
+            self._install_model_fn()
+
+    @objc.typedSelector(b"v@:@")
+    def openAccessibility_(self, sender):
+        if self._open_accessibility_fn:
+            self._open_accessibility_fn()
+
+    @objc.typedSelector(b"v@:@")
+    def completeSetup_(self, sender):
+        if self._complete_fn:
+            self._complete_fn()
+
+
+class SetupWizard:
+    """Single-page checklist wizard for first-run setup."""
+
+    MODEL_NAME = "qwen2.5:3b"
+
+    def __init__(self, on_complete):
+        """
+        on_complete — callable invoked (on main thread) when the user
+        clicks 'Complete Setup' and all checks pass.
+        """
+        self._on_complete = on_complete
+        self._installing_model = False
+
+        width, height = 480, 320
+        screen = AppKit.NSScreen.mainScreen().frame()
+        x = (screen.size.width - width) / 2
+        y = (screen.size.height - height) / 2
+
+        self._window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            AppKit.NSMakeRect(x, y, width, height),
+            AppKit.NSWindowStyleMaskTitled | AppKit.NSWindowStyleMaskClosable,
+            AppKit.NSBackingStoreBuffered,
+            False,
+        )
+        self._window.setTitle_("Welcome to Talky")
+        self._window.setLevel_(AppKit.NSFloatingWindowLevel)
+
+        content = self._window.contentView()
+
+        # ---- Title ----
+        title = AppKit.NSTextField.labelWithString_("Setup Checklist")
+        title.setFrame_(AppKit.NSMakeRect(20, height - 50, width - 40, 30))
+        title.setFont_(AppKit.NSFont.boldSystemFontOfSize_(20))
+        content.addSubview_(title)
+
+        subtitle = AppKit.NSTextField.labelWithString_(
+            "Talky needs a few things before it can run."
+        )
+        subtitle.setFrame_(AppKit.NSMakeRect(20, height - 75, width - 40, 20))
+        subtitle.setFont_(AppKit.NSFont.systemFontOfSize_(13))
+        subtitle.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        content.addSubview_(subtitle)
+
+        # ---- Row 1: Ollama + Model ----
+        row1_y = height - 130
+
+        self._ollama_icon = AppKit.NSImageView.alloc().initWithFrame_(
+            AppKit.NSMakeRect(20, row1_y, 20, 20)
+        )
+        content.addSubview_(self._ollama_icon)
+
+        self._ollama_label = AppKit.NSTextField.labelWithString_("Checking Ollama...")
+        self._ollama_label.setFrame_(AppKit.NSMakeRect(48, row1_y, 260, 20))
+        self._ollama_label.setFont_(AppKit.NSFont.systemFontOfSize_(13))
+        content.addSubview_(self._ollama_label)
+
+        self._target = _SetupTarget.alloc().init()
+        self._target._install_model_fn = self._install_model
+        self._target._open_accessibility_fn = self._open_accessibility
+        self._target._complete_fn = self._complete
+
+        self._ollama_button = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(340, row1_y - 2, 120, 24)
+        )
+        self._ollama_button.setBezelStyle_(AppKit.NSBezelStyleRounded)
+        self._ollama_button.setTitle_("Install Model")
+        self._ollama_button.setTarget_(self._target)
+        self._ollama_button.setAction_("installModel:")
+        self._ollama_button.setHidden_(True)
+        content.addSubview_(self._ollama_button)
+
+        # ---- Row 2: Accessibility ----
+        row2_y = height - 180
+
+        self._ax_icon = AppKit.NSImageView.alloc().initWithFrame_(
+            AppKit.NSMakeRect(20, row2_y, 20, 20)
+        )
+        content.addSubview_(self._ax_icon)
+
+        self._ax_label = AppKit.NSTextField.labelWithString_("Checking Accessibility...")
+        self._ax_label.setFrame_(AppKit.NSMakeRect(48, row2_y, 260, 20))
+        self._ax_label.setFont_(AppKit.NSFont.systemFontOfSize_(13))
+        content.addSubview_(self._ax_label)
+
+        self._ax_button = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(340, row2_y - 2, 120, 24)
+        )
+        self._ax_button.setBezelStyle_(AppKit.NSBezelStyleRounded)
+        self._ax_button.setTitle_("Open Settings")
+        self._ax_button.setTarget_(self._target)
+        self._ax_button.setAction_("openAccessibility:")
+        self._ax_button.setHidden_(True)
+        content.addSubview_(self._ax_button)
+
+        # ---- Complete button ----
+        self._complete_button = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(width - 170, 20, 150, 32)
+        )
+        self._complete_button.setBezelStyle_(AppKit.NSBezelStyleRounded)
+        self._complete_button.setTitle_("Complete Setup")
+        self._complete_button.setTarget_(self._target)
+        self._complete_button.setAction_("completeSetup:")
+        self._complete_button.setEnabled_(False)
+        content.addSubview_(self._complete_button)
+
+        # Run first check, then start periodic timer
+        self._check_all()
+        self._timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+            2.0, True, lambda t: self._check_all()
+        )
+
+    # ---- Checks ----
+
+    def _check_ollama(self) -> bool:
+        """Returns True if Ollama is running AND the model is available."""
+        try:
+            result = subprocess.run(
+                ["pgrep", "-x", "ollama"], capture_output=True
+            )
+            if result.returncode != 0:
+                return False
+            result = subprocess.run(
+                ["ollama", "list"], capture_output=True, text=True, timeout=5
+            )
+            return self.MODEL_NAME in result.stdout
+        except Exception:
+            return False
+
+    def _check_accessibility(self) -> bool:
+        return ApplicationServices.AXIsProcessTrusted()
+
+    def _check_all(self):
+        """Re-evaluate all checks and update UI."""
+        ollama_ok = self._check_ollama()
+        ax_ok = self._check_accessibility()
+
+        # Update Ollama row
+        self._set_row_status(
+            self._ollama_icon,
+            self._ollama_label,
+            self._ollama_button,
+            ok=ollama_ok,
+            ok_text="Ollama running, model installed",
+            fail_text="Ollama or model missing" if not self._installing_model else "Installing model...",
+        )
+        if self._installing_model:
+            self._ollama_button.setHidden_(True)
+
+        # Update Accessibility row
+        self._set_row_status(
+            self._ax_icon,
+            self._ax_label,
+            self._ax_button,
+            ok=ax_ok,
+            ok_text="Accessibility permission granted",
+            fail_text="Accessibility permission required",
+        )
+
+        self._complete_button.setEnabled_(ollama_ok and ax_ok)
+
+    def _set_row_status(self, icon_view, label, button, ok, ok_text, fail_text):
+        if ok:
+            img = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+                "checkmark.circle.fill", "OK"
+            )
+            label.setStringValue_(ok_text)
+            label.setTextColor_(AppKit.NSColor.labelColor())
+            button.setHidden_(True)
+        else:
+            img = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+                "xmark.circle.fill", "Missing"
+            )
+            label.setStringValue_(fail_text)
+            label.setTextColor_(AppKit.NSColor.systemRedColor())
+            button.setHidden_(False)
+        if img:
+            img.setTemplate_(False)
+            icon_view.setImage_(img)
+
+    # ---- Actions ----
+
+    def _install_model(self):
+        """Run 'ollama pull qwen2.5:3b' in a background thread."""
+        self._installing_model = True
+        self._ollama_button.setHidden_(True)
+        self._ollama_label.setStringValue_("Installing model...")
+        self._ollama_label.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+
+        def _pull():
+            try:
+                subprocess.run(
+                    ["ollama", "pull", self.MODEL_NAME],
+                    timeout=600,
+                )
+            except Exception as e:
+                print(f"[setup] Model install failed: {e}", flush=True)
+            self._installing_model = False
+
+        threading.Thread(target=_pull, daemon=True).start()
+
+    def _open_accessibility(self):
+        """Open macOS Accessibility preferences pane."""
+        subprocess.Popen([
+            "open",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        ])
+
+    def _complete(self):
+        """User clicked Complete Setup."""
+        self._timer.invalidate()
+        self._timer = None
+        self._window.orderOut_(None)
+        if self._on_complete:
+            self._on_complete()
+
+    # ---- Show / Close ----
+
+    def show(self):
+        self._window.makeKeyAndOrderFront_(None)
+        AppKit.NSApp.activateIgnoringOtherApps_(True)
+
+    def close(self):
+        if self._timer:
+            self._timer.invalidate()
+            self._timer = None
+        self._window.orderOut_(None)
+
+
+# ---------------------------------------------------------------------------
 # TalkyApp — wires everything together
 # ---------------------------------------------------------------------------
 
@@ -408,14 +675,17 @@ class TalkyApp:
         get_language returns the currently selected language code.
     """
 
-    def __init__(self, pipeline_fn, on_cleanup=None):
+    def __init__(self, pipeline_fn, on_cleanup=None, needs_setup=False):
         self._pipeline_fn = pipeline_fn
         self._on_cleanup = on_cleanup
+        self._needs_setup = needs_setup
+        self._config = ConfigManager()
         self._app = AppKit.NSApplication.sharedApplication()
         self._app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
 
         self.overlay = OverlayWindow()
         self.status_bar = StatusBarController(on_quit=self._quit)
+        self._wizard = None
 
         # Meeting mode callbacks — set by pipeline after init
         self._on_meeting_start = None
@@ -423,6 +693,26 @@ class TalkyApp:
         self.status_bar._menu_target._meeting_fn = self._toggle_meeting
 
     def run(self):
+        if self._needs_setup:
+            self._show_wizard()
+            self.status_bar.set_setup_required(True)
+        else:
+            self._start_pipeline()
+        self._app.run()
+
+    def _show_wizard(self):
+        self._wizard = SetupWizard(on_complete=self._on_setup_complete)
+        self._wizard.show()
+
+    def _on_setup_complete(self):
+        """Called on main thread when wizard finishes."""
+        self._config.mark_setup_complete()
+        self._needs_setup = False
+        self._wizard = None
+        self.status_bar.set_setup_required(False)
+        self._start_pipeline()
+
+    def _start_pipeline(self):
         t = threading.Thread(
             target=self._pipeline_fn,
             args=(
@@ -439,7 +729,6 @@ class TalkyApp:
             daemon=True,
         )
         t.start()
-        self._app.run()
 
     # -- callbacks (safe to call from any thread) --
 

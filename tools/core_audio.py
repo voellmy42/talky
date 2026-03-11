@@ -36,17 +36,9 @@ class AudioCaptureTool:
         self.hw_format = None
         self.resampler = None
 
-        # Verify accessibility permission on macOS
+        # Accessibility permission is enforced by the setup wizard before
+        # AudioCaptureTool is ever instantiated.
         if sys.platform == 'darwin':
-            import ApplicationServices
-            if not ApplicationServices.AXIsProcessTrusted():
-                print("\n#########################################################")
-                print("MACOS ACCESSIBILITY PERMISSION REQUIRED")
-                print("System Settings > Privacy & Security > Accessibility")
-                print("Enable your Terminal app, then restart.")
-                print("#########################################################\n", flush=True)
-                sys.exit(1)
-
             # Start persistent event tap thread
             self._tap_thread = threading.Thread(target=self._run_event_tap, daemon=True)
             self._tap_thread.start()
