@@ -20,10 +20,19 @@ _ollama_start_method = None  # "app" or "serve"
 
 
 def _needs_setup() -> bool:
-    """Check if the setup wizard should be shown."""
+    """Check if the setup wizard should be shown.
+
+    If the user has already completed setup, trust the config flag.
+    Ollama is started later by ensure_ollama_running(), so it won't be
+    running yet at this point — checking it here would force the wizard
+    every launch.  Only do live checks on first run.
+    """
     config = ConfigManager()
 
-    # Always check live dependencies, even if config says setup was completed
+    if config.is_setup_complete():
+        return False
+
+    # First run — check what's actually available right now
     ax_ok = ApplicationServices.AXIsProcessTrusted()
 
     ollama_ok = False
@@ -38,9 +47,6 @@ def _needs_setup() -> bool:
         pass
 
     if not ax_ok or not ollama_ok:
-        return True
-
-    if not config.is_setup_complete():
         return True
 
     return False
