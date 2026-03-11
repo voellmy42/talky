@@ -31,6 +31,11 @@ class AudioCaptureTool:
         self._double_tap_threshold = 0.4
         self.meeting_active = False
 
+        # State for macOS audio engine
+        self.input_node = None
+        self.hw_format = None
+        self.resampler = None
+
         # Verify accessibility permission on macOS
         if sys.platform == 'darwin':
             import ApplicationServices
@@ -52,6 +57,12 @@ class AudioCaptureTool:
             def capture_callback(buffer, time_info):
                 if self.is_recording:
                     try:
+                        # Use local references to avoid race conditions during re-config
+                        resampler = self.resampler
+                        hw_format = self.hw_format
+                        if not resampler or not hw_format:
+                            return
+
                         frames = buffer.frameLength()
                         data_ptr = buffer.floatChannelData()
                         if data_ptr:
@@ -59,9 +70,9 @@ class AudioCaptureTool:
                             audio_np = np.array(ch0_data[:frames], dtype=np.float32)
 
                             frame = av.AudioFrame.from_ndarray(audio_np.reshape(1, -1), format='flt', layout='mono')
-                            frame.sample_rate = int(self.hw_format.sampleRate())
+                            frame.sample_rate = int(hw_format.sampleRate())
 
-                            resampled_frames = self.resampler.resample(frame)
+                            resampled_frames = resampler.resample(frame)
                             if resampled_frames:
                                 resampled_np = resampled_frames[0].to_ndarray().flatten()
                                 self.q.put(resampled_np.reshape(-1, 1))
@@ -70,13 +81,12 @@ class AudioCaptureTool:
 
             self._capture_callback = capture_callback
             self._configure_audio_tap()
-            self.engine.prepare()
 
             # Listen for audio device changes (AirPods, headphones, etc.)
             from Foundation import NSNotificationCenter
             NSNotificationCenter.defaultCenter().addObserverForName_object_queue_usingBlock_(
                 "AVAudioEngineConfigurationChangeNotification",
-                self.engine,
+                None,  # Observe from anywhere
                 None,
                 lambda notification: self._handle_config_change()
             )
@@ -96,14 +106,15 @@ class AudioCaptureTool:
     def _configure_audio_tap(self):
         """Configure (or reconfigure) the audio tap for the current default input device."""
         try:
-            self.input_node.removeTapOnBus_(0)
+            if self.input_node:
+                self.input_node.removeTapOnBus_(0)
         except Exception:
             pass
 
         self.input_node = self.engine.inputNode()
         self.hw_format = self.input_node.inputFormatForBus_(0)
 
-        print(f"[core_audio] Audio input: {self.hw_format.sampleRate():.0f} Hz, "
+        print(f"[core_audio] Configuring tap: {self.hw_format.sampleRate()} Hz, "
               f"{self.hw_format.channelCount()} ch", flush=True)
 
         self.resampler = av.AudioResampler(
@@ -115,18 +126,26 @@ class AudioCaptureTool:
         self.input_node.installTapOnBus_bufferSize_format_block_(
             0, 1024, self.hw_format, self._capture_callback
         )
+        self.engine.prepare()
 
     def _handle_config_change(self):
         """Handle audio hardware configuration change (device connected/disconnected)."""
-        print("[core_audio] Audio device changed, reconfiguring...", flush=True)
+        print("[core_audio] Audio device change detected.", flush=True)
         was_recording = self.is_recording
 
+        if was_recording:
+            self.engine.pause()
+            print("[core_audio] Paused engine for reconfiguration.", flush=True)
+
         self._configure_audio_tap()
-        self.engine.prepare()
 
         if was_recording:
-            self.engine.startAndReturnError_(None)
-            print("[core_audio] Engine restarted with new device.", flush=True)
+            success, error = self.engine.startAndReturnError_(None)
+            if success:
+                print("[core_audio] Engine restarted with new device.", flush=True)
+            else:
+                print(f"[core_audio] Failed to restart engine: {error}", flush=True)
+
 
     def _start_capture(self):
         """Start audio capture immediately (called from event tap thread)."""
