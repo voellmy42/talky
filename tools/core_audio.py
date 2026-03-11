@@ -107,13 +107,16 @@ class AudioCaptureTool:
             self._start_event.set()
         elif self._mode == 'WAITING_FOR_DOUBLE':
             if now - self._last_release <= self._double_tap_threshold:
-                self._mode = 'TOGGLED'
+                self._mode = 'TOGGLED_PRESSED'
                 print("[core_audio] Double-tap: toggle mode active. Tap again to stop.", flush=True)
             else:
                 self._mode = 'HOLDING'
                 self._last_press = now
                 self._start_capture()
                 self._start_event.set()
+        elif self._mode == 'TOGGLED_IDLE':
+            self._mode = 'IDLE'
+            self._stop_event.set()
 
     def _handle_release(self, now):
         if self._mode == 'HOLDING':
@@ -124,9 +127,8 @@ class AudioCaptureTool:
             else:
                 self._mode = 'IDLE'
                 self._stop_event.set()
-        elif self._mode == 'TOGGLED':
-            self._mode = 'IDLE'
-            self._stop_event.set()
+        elif self._mode == 'TOGGLED_PRESSED':
+            self._mode = 'TOGGLED_IDLE'
 
     def _check_double_tap_timeout(self):
         time.sleep(self._double_tap_threshold)

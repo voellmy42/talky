@@ -209,6 +209,33 @@ class StatusBarController:
 
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
+        # ---- Stats Dashboard ----
+        stats_header = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Productivity Stats", None, ""
+        )
+        stats_header.setEnabled_(False)
+        menu.addItem_(stats_header)
+
+        self._stat_time_saved = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "  ⚡️ Time Saved: 0s", None, ""
+        )
+        self._stat_time_saved.setEnabled_(False)
+        menu.addItem_(self._stat_time_saved)
+
+        self._stat_dictations = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "  🎤 Dictations: 0", None, ""
+        )
+        self._stat_dictations.setEnabled_(False)
+        menu.addItem_(self._stat_dictations)
+
+        self._stat_speed = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "  🚀 Speed: 0 WPM", None, ""
+        )
+        self._stat_speed.setEnabled_(False)
+        menu.addItem_(self._stat_speed)
+
+        menu.addItem_(AppKit.NSMenuItem.separatorItem())
+
         # ---- Language selector ----
         lang_header = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Language", None, ""
@@ -253,6 +280,11 @@ class StatusBarController:
     def get_language(self):
         return self._language
 
+    def update_stats(self, stats: dict):
+        self._stat_time_saved.setTitle_(f"  ⚡️ Time Saved: {stats.get('time_saved', '0s')}")
+        self._stat_dictations.setTitle_(f"  🎤 Dictations: {stats.get('dictations', '0')}")
+        self._stat_speed.setTitle_(f"  🚀 Speed: {stats.get('speed_wpm', '0')} WPM")
+
     def set_recording(self, is_recording):
         button = self._status_item.button()
         if is_recording:
@@ -296,6 +328,7 @@ class TalkyApp:
                 self._on_warmup,
                 self._on_ready,
                 self.status_bar.get_language,
+                self._on_stats_update,
             ),
             daemon=True,
         )
@@ -321,6 +354,12 @@ class TalkyApp:
 
     def _on_ready(self):
         _Dispatcher.dispatch_to_main(self._main_idle)
+
+    def _on_stats_update(self, stats: dict):
+        """Dispatches an update to the stats UI on the main thread."""
+        def update():
+            self.status_bar.update_stats(stats)
+        _Dispatcher.dispatch_to_main(update)
 
     # -- main-thread UI mutations --
 

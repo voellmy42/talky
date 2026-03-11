@@ -5,6 +5,7 @@ from tools.core_stt import STTTool
 from tools.core_llm import LLMFormatter
 from tools.core_output import OutputInjector
 from tools import core_audio_feedback as chime
+from tools.core_stats import StatsStore
 
 
 def main():
@@ -13,11 +14,14 @@ def main():
     stt_tool = STTTool(model_size="small", compute_type="int8")
     llm_tool = LLMFormatter(host="http://localhost:11434", model="qwen2.5:3b")
     output_tool = OutputInjector()
+    stats_store = StatsStore()
 
     print("--- Models loaded. Starting app... ---", flush=True)
 
-    def pipeline_loop(on_record_start, on_record_stop, on_processing, on_idle, on_warmup, on_ready, get_language):
+    def pipeline_loop(on_record_start, on_record_stop, on_processing, on_idle, on_warmup, on_ready, get_language, on_stats_update):
         on_warmup()
+        # Initialize UI stats display on UI start
+        on_stats_update(stats_store.get_formatted_stats())
         import numpy as np
         print("--- Warming up models ---", flush=True)
         stt_tool.transcribe(np.zeros(16000, dtype=np.float32))
@@ -66,6 +70,12 @@ def main():
                 output_tool.inject(cleaned_text)
                 elapsed = time.time() - start_time
                 print(f"[pipeline] Done in {elapsed:.2f}s", flush=True)
+
+                # Update Stats
+                duration_seconds = len(audio_buffer) / 16000.0
+                words_count = len(cleaned_text.split())
+                stats_store.add_dictation(duration_seconds, words_count)
+                on_stats_update(stats_store.get_formatted_stats())
 
                 on_idle()
 
