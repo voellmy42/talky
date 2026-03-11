@@ -41,7 +41,7 @@ class MeetingSummarizer:
         payload = {
             "model": self.model,
             "system": self._build_system_prompt(language),
-            "prompt": full_transcript,
+            "prompt": f"Meeting Transcript:\n\n{full_transcript}",
             "stream": False,
             "keep_alive": "5m",
             "options": {

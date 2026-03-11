@@ -17,6 +17,35 @@ _talky_started_ollama = False
 _ollama_start_method = None  # "app" or "serve"
 
 
+def _is_ollama_app_installed():
+    """Check if Ollama.app is installed on macOS."""
+    import os
+    return os.path.isdir("/Applications/Ollama.app")
+
+
+def _launch_ollama_app_icon_only():
+    """Launch Ollama.app in background (menu bar icon only, no chat window)."""
+    # -g = don't bring to foreground, -j = don't restore windows
+    subprocess.Popen(
+        ["open", "-g", "-j", "-a", "Ollama"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    # Give the app a moment to launch, then close any windows it may open
+    def _close_ollama_windows():
+        time.sleep(2)
+        try:
+            subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to tell process "Ollama" '
+                 'to set visible to false'],
+                capture_output=True, timeout=5,
+            )
+        except Exception:
+            pass
+    threading.Thread(target=_close_ollama_windows, daemon=True).start()
+
+
 def ensure_ollama_running():
     """Start Ollama if installed but not already running. Returns True if started by us."""
     global _talky_started_ollama, _ollama_start_method
@@ -27,24 +56,20 @@ def ensure_ollama_running():
         )
         if result.returncode == 0:
             print("[startup] Ollama is already running.", flush=True)
+            # Ensure the menu bar icon is visible even if started via 'ollama serve'
+            if _is_ollama_app_installed():
+                _launch_ollama_app_icon_only()
+                print("[startup] Ollama menu bar icon activated.", flush=True)
             return
 
         # Check if Ollama.app is installed (macOS GUI app)
-        ollama_app = subprocess.run(
-            ["mdfind", "kMDItemCFBundleIdentifier == 'com.ollama.ollama'"],
-            capture_output=True, text=True,
-        )
-        if ollama_app.returncode == 0 and ollama_app.stdout.strip():
-            subprocess.Popen(
-                ["open", "-a", "Ollama"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+        if _is_ollama_app_installed():
+            _launch_ollama_app_icon_only()
             _talky_started_ollama = True
             _ollama_start_method = "app"
             print("[startup] Ollama started (menu bar icon visible).", flush=True)
         elif shutil.which("ollama"):
-            # CLI-only install (e.g. via Homebrew)
+            # CLI-only install (e.g. via Homebrew) — no icon possible
             subprocess.Popen(
                 ["ollama", "serve"],
                 stdout=subprocess.DEVNULL,
@@ -52,7 +77,7 @@ def ensure_ollama_running():
             )
             _talky_started_ollama = True
             _ollama_start_method = "serve"
-            print("[startup] Ollama serve started in the background.", flush=True)
+            print("[startup] Ollama serve started (CLI only, no icon).", flush=True)
         else:
             print("[startup] Ollama not found, skipping.", flush=True)
     except Exception as e:
