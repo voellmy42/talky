@@ -25,24 +25,37 @@ def _is_ollama_app_installed():
 
 def _launch_ollama_app_icon_only():
     """Launch Ollama.app in background (menu bar icon only, no chat window)."""
-    # -g = don't bring to foreground, -j = don't restore windows
+    # -g = don't bring to foreground, -j = launch hidden
     subprocess.Popen(
         ["open", "-g", "-j", "-a", "Ollama"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    # Give the app a moment to launch, then close any windows it may open
+    # Ollama always opens a chat window on startup regardless of launch flags.
+    # Poll aggressively to close it and hide the dock icon as fast as possible.
     def _close_ollama_windows():
-        time.sleep(2)
-        try:
-            subprocess.run(
-                ["osascript", "-e",
-                 'tell application "System Events" to tell process "Ollama" '
-                 'to set visible to false'],
-                capture_output=True, timeout=5,
-            )
-        except Exception:
-            pass
+        for _ in range(8):
+            time.sleep(0.5)
+            try:
+                subprocess.run(
+                    ["osascript", "-e",
+                     'tell application "System Events"\n'
+                     '  if exists process "Ollama" then\n'
+                     '    tell process "Ollama"\n'
+                     '      set visible to false\n'
+                     '      repeat with w in windows\n'
+                     '        try\n'
+                     '          perform action "AXPress" of '
+                     '(first button of w whose subrole is "AXCloseButton")\n'
+                     '        end try\n'
+                     '      end repeat\n'
+                     '    end tell\n'
+                     '  end if\n'
+                     'end tell'],
+                    capture_output=True, timeout=3,
+                )
+            except Exception:
+                pass
     threading.Thread(target=_close_ollama_windows, daemon=True).start()
 
 
