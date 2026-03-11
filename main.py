@@ -124,7 +124,7 @@ def main():
         on_stats_update(stats_store.get_formatted_stats())
         import numpy as np
         print("--- Warming up models ---", flush=True)
-        stt_tool.transcribe(np.zeros(16000, dtype=np.float32))
+        stt_tool.transcribe(np.zeros(16000, dtype=np.float32), is_warmup=True)
         
         # Ping Ollama server to ensure it's responsive before formatting
         import requests
