@@ -48,15 +48,7 @@ class AudioCaptureTool:
             
             # Setup AVAudioEngine
             self.engine = AVFoundation.AVAudioEngine.alloc().init()
-            self.input_node = self.engine.inputNode()
-            self.hw_format = self.input_node.inputFormatForBus_(0)
-            
-            self.resampler = av.AudioResampler(
-                format='flt',
-                layout='mono',
-                rate=self.sample_rate,
-            )
-            
+
             def capture_callback(buffer, time_info):
                 if self.is_recording:
                     try:
@@ -65,10 +57,10 @@ class AudioCaptureTool:
                         if data_ptr:
                             ch0_data = data_ptr[0]
                             audio_np = np.array(ch0_data[:frames], dtype=np.float32)
-                            
+
                             frame = av.AudioFrame.from_ndarray(audio_np.reshape(1, -1), format='flt', layout='mono')
                             frame.sample_rate = int(self.hw_format.sampleRate())
-                            
+
                             resampled_frames = self.resampler.resample(frame)
                             if resampled_frames:
                                 resampled_np = resampled_frames[0].to_ndarray().flatten()
@@ -76,10 +68,19 @@ class AudioCaptureTool:
                     except Exception as e:
                         print(f"[core_audio] Callback error: {e}", flush=True)
 
-            self.input_node.installTapOnBus_bufferSize_format_block_(
-                0, 1024, self.hw_format, capture_callback
-            )
+            self._capture_callback = capture_callback
+            self._configure_audio_tap()
             self.engine.prepare()
+
+            # Listen for audio device changes (AirPods, headphones, etc.)
+            from Foundation import NSNotificationCenter
+            NSNotificationCenter.defaultCenter().addObserverForName_object_queue_usingBlock_(
+                "AVAudioEngineConfigurationChangeNotification",
+                self.engine,
+                None,
+                lambda notification: self._handle_config_change()
+            )
+
             print("[core_audio] AVFoundation Audio engine pre-created (not yet active).", flush=True)
         else:
             self.engine = None
@@ -91,6 +92,41 @@ class AudioCaptureTool:
                 callback=self._audio_callback
             )
             print("[core_audio] Audio stream pre-created (not yet active).", flush=True)
+
+    def _configure_audio_tap(self):
+        """Configure (or reconfigure) the audio tap for the current default input device."""
+        try:
+            self.input_node.removeTapOnBus_(0)
+        except Exception:
+            pass
+
+        self.input_node = self.engine.inputNode()
+        self.hw_format = self.input_node.inputFormatForBus_(0)
+
+        print(f"[core_audio] Audio input: {self.hw_format.sampleRate():.0f} Hz, "
+              f"{self.hw_format.channelCount()} ch", flush=True)
+
+        self.resampler = av.AudioResampler(
+            format='flt',
+            layout='mono',
+            rate=self.sample_rate,
+        )
+
+        self.input_node.installTapOnBus_bufferSize_format_block_(
+            0, 1024, self.hw_format, self._capture_callback
+        )
+
+    def _handle_config_change(self):
+        """Handle audio hardware configuration change (device connected/disconnected)."""
+        print("[core_audio] Audio device changed, reconfiguring...", flush=True)
+        was_recording = self.is_recording
+
+        self._configure_audio_tap()
+        self.engine.prepare()
+
+        if was_recording:
+            self.engine.startAndReturnError_(None)
+            print("[core_audio] Engine restarted with new device.", flush=True)
 
     def _start_capture(self):
         """Start audio capture immediately (called from event tap thread)."""
