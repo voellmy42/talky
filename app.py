@@ -37,14 +37,19 @@ class _Dispatcher(AppKit.NSObject):
 # ---------------------------------------------------------------------------
 
 class _RoundedBackgroundView(AppKit.NSView):
-    """Draws a dark rounded rectangle."""
+    """Draws a rounded rectangle with configurable color."""
+
+    _fill_r = 0.1
+    _fill_g = 0.1
+    _fill_b = 0.1
+    _fill_a = 0.88
 
     def drawRect_(self, rect):
         path = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
             self.bounds(), 12, 12
         )
         AppKit.NSColor.colorWithCalibratedRed_green_blue_alpha_(
-            0.1, 0.1, 0.1, 0.88
+            self._fill_r, self._fill_g, self._fill_b, self._fill_a
         ).setFill()
         path.fill()
 
@@ -82,10 +87,10 @@ class OverlayWindow:
         )
         self._window.setContentView_(content)
 
-        bg = _RoundedBackgroundView.alloc().initWithFrame_(
+        self._bg = _RoundedBackgroundView.alloc().initWithFrame_(
             AppKit.NSMakeRect(0, 0, width, height)
         )
-        content.addSubview_(bg)
+        content.addSubview_(self._bg)
 
         self._label = AppKit.NSTextField.labelWithString_("")
         self._label.setFrame_(AppKit.NSMakeRect(12, 8, width - 24, 24))
@@ -102,6 +107,7 @@ class OverlayWindow:
 
         self._pulse_timer = None
         self._pulse_on = True
+        self._meeting_timer = None
 
     def show(self, text="Listening..."):
         self._label.setStringValue_(text)
@@ -138,6 +144,49 @@ class OverlayWindow:
             self._pulse_timer = None
         self._window.setAlphaValue_(1.0)
 
+    def set_dictation_style(self):
+        """Dark pill for dictation mode."""
+        self._bg._fill_r = 0.1
+        self._bg._fill_g = 0.1
+        self._bg._fill_b = 0.1
+        self._bg.setNeedsDisplay_(True)
+
+    def set_meeting_style(self):
+        """Blue-tinted pill for meeting mode."""
+        self._bg._fill_r = 0.08
+        self._bg._fill_g = 0.15
+        self._bg._fill_b = 0.35
+        self._bg.setNeedsDisplay_(True)
+
+    def start_meeting_timer(self, get_elapsed):
+        """Start a 1-second timer that updates the overlay with elapsed time."""
+        self._stop_pulse()
+        self.set_meeting_style()
+
+        def tick(timer):
+            secs = int(get_elapsed())
+            mins, s = divmod(secs, 60)
+            hrs, m = divmod(mins, 60)
+            if hrs > 0:
+                time_str = f"{hrs}:{m:02d}:{s:02d}"
+            else:
+                time_str = f"{m:02d}:{s:02d}"
+            self._label.setStringValue_(f"  Meeting — {time_str}")
+
+        self._window.setAlphaValue_(1.0)
+        self._window.orderFrontRegardless()
+        self._label.setStringValue_("  Meeting — 00:00")
+        self._meeting_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+            1.0, True, tick
+        )
+
+    def stop_meeting_timer(self):
+        """Stop the meeting timer and reset overlay style."""
+        if self._meeting_timer is not None:
+            self._meeting_timer.invalidate()
+            self._meeting_timer = None
+        self.set_dictation_style()
+
 
 # ---------------------------------------------------------------------------
 # Status bar controller
@@ -148,6 +197,7 @@ class _MenuTarget(AppKit.NSObject):
 
     _quit_fn = None
     _lang_fn = None
+    _meeting_fn = None
 
     @objc.typedSelector(b"v@:@")
     def quitApp_(self, sender):
@@ -158,6 +208,11 @@ class _MenuTarget(AppKit.NSObject):
     def selectLang_(self, sender):
         if self._lang_fn:
             self._lang_fn(sender.representedObject())
+
+    @objc.typedSelector(b"v@:@")
+    def toggleMeeting_(self, sender):
+        if self._meeting_fn:
+            self._meeting_fn()
 
 
 class StatusBarController:
@@ -189,6 +244,13 @@ class StatusBarController:
             "mic.fill", "Talky recording"
         )
         self._icon_recording.setTemplate_(True)
+
+        self._icon_meeting = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+            "record.circle", "Meeting in progress"
+        )
+        self._icon_meeting.setTemplate_(True)
+
+        self._meeting_active = False
 
         button = self._status_item.button()
         button.setImage_(self._icon_idle)
@@ -233,6 +295,15 @@ class StatusBarController:
         )
         self._stat_speed.setEnabled_(False)
         menu.addItem_(self._stat_speed)
+
+        menu.addItem_(AppKit.NSMenuItem.separatorItem())
+
+        # ---- Meeting Mode ----
+        self._meeting_menu_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Start Meeting", "toggleMeeting:", ""
+        )
+        self._meeting_menu_item.setTarget_(self._menu_target)
+        menu.addItem_(self._meeting_menu_item)
 
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
@@ -294,6 +365,18 @@ class StatusBarController:
             button.setImage_(self._icon_idle)
             self._status_menu_item.setTitle_("Status: Ready")
 
+    def set_meeting_active(self, active):
+        self._meeting_active = active
+        button = self._status_item.button()
+        if active:
+            button.setImage_(self._icon_meeting)
+            self._status_menu_item.setTitle_("Status: Meeting in progress")
+            self._meeting_menu_item.setTitle_("Stop Meeting")
+        else:
+            button.setImage_(self._icon_idle)
+            self._status_menu_item.setTitle_("Status: Ready")
+            self._meeting_menu_item.setTitle_("Start Meeting")
+
 
 # ---------------------------------------------------------------------------
 # TalkyApp — wires everything together
@@ -317,6 +400,11 @@ class TalkyApp:
         self.overlay = OverlayWindow()
         self.status_bar = StatusBarController(on_quit=self._quit)
 
+        # Meeting mode callbacks — set by pipeline after init
+        self._on_meeting_start = None
+        self._on_meeting_stop = None
+        self.status_bar._menu_target._meeting_fn = self._toggle_meeting
+
     def run(self):
         t = threading.Thread(
             target=self._pipeline_fn,
@@ -329,6 +417,7 @@ class TalkyApp:
                 self._on_ready,
                 self.status_bar.get_language,
                 self._on_stats_update,
+                self,  # app_ref for meeting mode wiring
             ),
             daemon=True,
         )
@@ -381,6 +470,15 @@ class TalkyApp:
     def _main_warmup(self):
         self.status_bar.set_recording(False)
         self.overlay.show("  Warming up models...")
+
+    def _toggle_meeting(self):
+        """Called from menu bar on main thread."""
+        if self.status_bar._meeting_active:
+            if self._on_meeting_stop:
+                self._on_meeting_stop()
+        else:
+            if self._on_meeting_start:
+                self._on_meeting_start()
 
     def _quit(self):
         self._app.terminate_(None)

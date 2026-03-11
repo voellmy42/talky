@@ -29,6 +29,7 @@ class AudioCaptureTool:
         self._last_press = 0.0
         self._last_release = 0.0
         self._double_tap_threshold = 0.4
+        self.meeting_active = False
 
         # Verify accessibility permission on macOS
         if sys.platform == 'darwin':
@@ -100,6 +101,8 @@ class AudioCaptureTool:
             self._stream.start()
 
     def _handle_press(self, now):
+        if self.meeting_active:
+            return
         if self._mode == 'IDLE':
             self._mode = 'HOLDING'
             self._last_press = now
@@ -119,6 +122,8 @@ class AudioCaptureTool:
             self._stop_event.set()
 
     def _handle_release(self, now):
+        if self.meeting_active:
+            return
         if self._mode == 'HOLDING':
             if now - self._last_press <= self._double_tap_threshold:
                 self._mode = 'WAITING_FOR_DOUBLE'
@@ -182,6 +187,37 @@ class AudioCaptureTool:
             print(status, flush=True)
         if self.is_recording:
             self.q.put(indata.copy())
+
+    def start_continuous(self):
+        """Start continuous recording for meeting mode. Disables Fn-key dictation."""
+        self.meeting_active = True
+        while not self.q.empty():
+            self.q.get()
+        self.is_recording = True
+        if sys.platform == 'darwin':
+            self.engine.startAndReturnError_(None)
+        else:
+            self._stream.start()
+        print("[core_audio] Continuous recording started (meeting mode).", flush=True)
+
+    def stop_continuous(self):
+        """Stop continuous recording and re-enable Fn-key dictation."""
+        self.is_recording = False
+        if sys.platform == 'darwin':
+            self.engine.pause()
+        else:
+            self._stream.stop()
+        self.meeting_active = False
+        print("[core_audio] Continuous recording stopped.", flush=True)
+
+    def drain_audio_queue(self) -> np.ndarray:
+        """Drain all queued audio chunks and return as a single numpy array."""
+        chunks = []
+        while not self.q.empty():
+            chunks.append(self.q.get())
+        if not chunks:
+            return np.array([], dtype='float32')
+        return np.concatenate(chunks, axis=0).flatten()
 
     def record_while_pressed(self) -> np.ndarray:
         """Blocks until Fn pressed, records audio, returns buffer on release."""
