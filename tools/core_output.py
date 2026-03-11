@@ -7,6 +7,16 @@ class OutputInjector:
         # We assume pyautogui is configured properly for the OS
         # Pause between keystrokes — 0.08s balances speed vs modifier reliability
         pyautogui.PAUSE = 0.08
+        
+        # Warm up pyautogui's accessibility API on macOS to prevent dropping the 
+        # first modifier key press, which results in a bare 'v' instead of Cmd+V.
+        import sys
+        try:
+            mod = 'command' if sys.platform == 'darwin' else 'ctrl'
+            pyautogui.keyDown(mod)
+            pyautogui.keyUp(mod)
+        except Exception:
+            pass
     
     def inject(self, text: str) -> bool:
         """
@@ -31,14 +41,17 @@ class OutputInjector:
             time.sleep(0.15)
             
             # 4. Simulate Cmd+V / Ctrl+V to paste
-            #    Use explicit keyDown/keyUp instead of hotkey() — pyautogui's
-            #    first hotkey() call on macOS can fire 'v' before the modifier
-            #    is registered, producing a bare "v".
-            mod = 'command' if sys.platform == 'darwin' else 'ctrl'
-            pyautogui.keyDown(mod)
-            time.sleep(0.03)
-            pyautogui.press('v')
-            pyautogui.keyUp(mod)
+            #    On macOS, pyautogui can drop the first modifier key press, so 
+            #    we use AppleScript for perfect reliability on the first run.
+            if sys.platform == 'darwin':
+                import subprocess
+                subprocess.run(['osascript', '-e', 'tell application "System Events" to keystroke "v" using command down'])
+            else:
+                mod = 'ctrl'
+                pyautogui.keyDown(mod)
+                time.sleep(0.03)
+                pyautogui.press('v')
+                pyautogui.keyUp(mod)
             
             # 4. Restore original clipboard after a short delay
             #    (OS needs time to complete the paste event)
