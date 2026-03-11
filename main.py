@@ -23,6 +23,11 @@ def main():
     print("--- Models loaded. Starting app... ---", flush=True)
 
     def pipeline_loop(on_record_start, on_record_stop, on_processing, on_idle, on_warmup, on_ready, get_language, on_stats_update, app_ref):
+        def on_ollama_state_change(is_offline):
+            _Dispatcher.dispatch_to_main(lambda: app_ref.status_bar.set_ollama_offline(is_offline))
+            
+        llm_tool.on_state_change_callback = on_ollama_state_change
+
         on_warmup()
         # Initialize UI stats display on UI start
         on_stats_update(stats_store.get_formatted_stats())

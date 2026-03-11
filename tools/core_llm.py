@@ -10,6 +10,8 @@ class LLMFormatter:
         self.host = f"{host}/api/generate"
         self.model = model
         self._lang_names = {"de": "German", "en": "English"}
+        self.is_offline = False
+        self.on_state_change_callback = None
         print(f"[core_llm] Initialized with local Ollama model: '{self.model}' at {self.host}")
 
     def _build_system_prompt(self, language: str) -> str:
@@ -55,9 +57,21 @@ class LLMFormatter:
             response.raise_for_status()
             result = response.json().get("response", "")
             cleaned = result.strip()
+            
+            # Reset offline state on successful connection
+            if self.is_offline:
+                self.is_offline = False
+                if self.on_state_change_callback:
+                    self.on_state_change_callback(False)
+            
             print(f"[core_llm] Formatted output: '{cleaned}'")
             return cleaned
         except Exception as e:
+            if not self.is_offline:
+                self.is_offline = True
+                if self.on_state_change_callback:
+                    self.on_state_change_callback(True)
+            
             print(f"[core_llm] Warning: Ollama formatting failed ({e}). Returning raw transcription.")
             return raw_transcription.strip()
 

@@ -250,7 +250,14 @@ class StatusBarController:
         )
         self._icon_meeting.setTemplate_(True)
 
+        self._icon_warning = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+            "exclamationmark.triangle", "Ollama missing"
+        )
+        self._icon_warning.setTemplate_(True)
+
         self._meeting_active = False
+        self._is_recording = False
+        self._ollama_offline = False
 
         button = self._status_item.button()
         button.setImage_(self._icon_idle)
@@ -357,21 +364,30 @@ class StatusBarController:
         self._stat_speed.setTitle_(f"  🚀 Speed: {stats.get('speed_wpm', '0')} WPM")
 
     def set_recording(self, is_recording):
-        button = self._status_item.button()
-        if is_recording:
-            button.setImage_(self._icon_recording)
-            self._status_menu_item.setTitle_("Status: Recording...")
-        else:
-            button.setImage_(self._icon_idle)
-            self._status_menu_item.setTitle_("Status: Ready")
+        self._is_recording = is_recording
+        self._update_display()
 
     def set_meeting_active(self, active):
         self._meeting_active = active
+        self._update_display()
+
+    def set_ollama_offline(self, offline):
+        self._ollama_offline = offline
+        self._update_display()
+
+    def _update_display(self):
         button = self._status_item.button()
-        if active:
+        if self._is_recording:
+            button.setImage_(self._icon_recording)
+            self._status_menu_item.setTitle_("Status: Recording...")
+        elif self._meeting_active:
             button.setImage_(self._icon_meeting)
             self._status_menu_item.setTitle_("Status: Meeting in progress")
             self._meeting_menu_item.setTitle_("Stop Meeting")
+        elif self._ollama_offline:
+            button.setImage_(self._icon_warning)
+            self._status_menu_item.setTitle_("Status: Ollama missing")
+            self._meeting_menu_item.setTitle_("Start Meeting")
         else:
             button.setImage_(self._icon_idle)
             self._status_menu_item.setTitle_("Status: Ready")
