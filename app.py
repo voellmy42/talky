@@ -408,8 +408,9 @@ class TalkyApp:
         get_language returns the currently selected language code.
     """
 
-    def __init__(self, pipeline_fn):
+    def __init__(self, pipeline_fn, on_cleanup=None):
         self._pipeline_fn = pipeline_fn
+        self._on_cleanup = on_cleanup
         self._app = AppKit.NSApplication.sharedApplication()
         self._app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
 
@@ -497,4 +498,6 @@ class TalkyApp:
                 self._on_meeting_start()
 
     def _quit(self):
+        if self._on_cleanup:
+            self._on_cleanup()
         self._app.terminate_(None)

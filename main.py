@@ -1,5 +1,7 @@
 import time
 import threading
+import subprocess
+import shutil
 from app import TalkyApp, _Dispatcher
 from tools.core_audio import AudioCaptureTool
 from tools.core_stt import STTTool
@@ -11,8 +13,72 @@ from tools.meeting_mode import MeetingSession
 from tools.meeting_llm import MeetingSummarizer
 
 
+_talky_started_ollama = False
+_ollama_start_method = None  # "app" or "serve"
+
+
+def ensure_ollama_running():
+    """Start Ollama if installed but not already running. Returns True if started by us."""
+    global _talky_started_ollama, _ollama_start_method
+    try:
+        result = subprocess.run(
+            ["pgrep", "-x", "ollama"],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            print("[startup] Ollama is already running.", flush=True)
+            return
+
+        # Check if Ollama.app is installed (macOS GUI app)
+        ollama_app = subprocess.run(
+            ["mdfind", "kMDItemCFBundleIdentifier == 'com.ollama.ollama'"],
+            capture_output=True, text=True,
+        )
+        if ollama_app.returncode == 0 and ollama_app.stdout.strip():
+            subprocess.Popen(
+                ["open", "-a", "Ollama"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            _talky_started_ollama = True
+            _ollama_start_method = "app"
+            print("[startup] Ollama started (menu bar icon visible).", flush=True)
+        elif shutil.which("ollama"):
+            # CLI-only install (e.g. via Homebrew)
+            subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            _talky_started_ollama = True
+            _ollama_start_method = "serve"
+            print("[startup] Ollama serve started in the background.", flush=True)
+        else:
+            print("[startup] Ollama not found, skipping.", flush=True)
+    except Exception as e:
+        print(f"[startup] Could not start Ollama: {e}", flush=True)
+
+
+def stop_ollama():
+    """Stop Ollama if Talky started it."""
+    if not _talky_started_ollama:
+        return
+    try:
+        if _ollama_start_method == "app":
+            subprocess.run(
+                ["osascript", "-e", 'quit app "Ollama"'],
+                capture_output=True, timeout=5,
+            )
+        else:
+            subprocess.run(["pkill", "-x", "ollama"], capture_output=True, timeout=5)
+        print("[shutdown] Ollama stopped.", flush=True)
+    except Exception as e:
+        print(f"[shutdown] Could not stop Ollama: {e}", flush=True)
+
+
 def main():
     print("--- Initializing Talky ---", flush=True)
+    ensure_ollama_running()
 
     stt_tool = STTTool(model_size="small", compute_type="int8")
     llm_tool = LLMFormatter(host="http://localhost:11434", model="qwen2.5:3b")
@@ -152,7 +218,7 @@ def main():
                 print(f"[pipeline] Error: {e}", flush=True)
                 on_idle()
 
-    app = TalkyApp(pipeline_loop)
+    app = TalkyApp(pipeline_loop, on_cleanup=stop_ollama)
     app.run()
 
 
