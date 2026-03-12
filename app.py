@@ -3,6 +3,7 @@ import AppKit
 import ApplicationServices
 import subprocess
 import threading
+import Quartz
 
 from tools.core_config import ConfigManager
 
@@ -40,22 +41,37 @@ class _Dispatcher(AppKit.NSObject):
 # Rounded background view
 # ---------------------------------------------------------------------------
 
-class _RoundedBackgroundView(AppKit.NSView):
-    """Draws a rounded rectangle with configurable color."""
+class _RoundedBackgroundView(AppKit.NSVisualEffectView):
+    """Modern background with glassmorphism and tinting."""
 
-    _fill_r = 0.1
-    _fill_g = 0.1
-    _fill_b = 0.1
-    _fill_a = 0.88
+    def initWithFrame_(self, frame):
+        self = objc.super(_RoundedBackgroundView, self).initWithFrame_(frame)
+        if self:
+            self.setWantsLayer_(True)
+            self.setMaterial_(AppKit.NSVisualEffectMaterialHUDWindow)
+            self.setBlendingMode_(AppKit.NSVisualEffectBlendingModeBehindWindow)
+            self.setState_(AppKit.NSVisualEffectStateActive)
+            self.layer().setCornerRadius_(frame.size.height / 2)
+            self.layer().setMasksToBounds_(True)
+            self.layer().setBorderWidth_(0.5)
+            self.layer().setBorderColor_(
+                AppKit.NSColor.colorWithCalibratedWhite_alpha_(1.0, 0.2).CGColor()
+            )
+
+            # Tint layer for different modes (e.g., meeting mode blue tint)
+            self._tint_layer = Quartz.CALayer.layer()
+            self._tint_layer.setFrame_(self.bounds())
+            self._tint_layer.setOpacity_(0.0)
+            self.layer().addSublayer_(self._tint_layer)
+        return self
+
+    def setTint_withAlpha_(self, color, alpha):
+        self._tint_layer.setBackgroundColor_(color.CGColor())
+        self._tint_layer.setOpacity_(alpha)
 
     def drawRect_(self, rect):
-        path = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-            self.bounds(), 12, 12
-        )
-        AppKit.NSColor.colorWithCalibratedRed_green_blue_alpha_(
-            self._fill_r, self._fill_g, self._fill_b, self._fill_a
-        ).setFill()
-        path.fill()
+        # Visual effect view handles its own drawing
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -63,13 +79,14 @@ class _RoundedBackgroundView(AppKit.NSView):
 # ---------------------------------------------------------------------------
 
 class OverlayWindow:
-    """Floating pill that shows recording / processing state."""
+    """Modern floating pill showing recording, warming up, or meeting state."""
 
     def __init__(self):
-        width, height = 180, 40
+        width, height = 220, 48
         screen = AppKit.NSScreen.mainScreen().frame()
+        # Position centered at the bottom, but above the dock area
         x = (screen.size.width - width) / 2
-        y = screen.size.height - 80
+        y = screen.size.height - 100
 
         self._window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             AppKit.NSMakeRect(x, y, width, height),
@@ -81,6 +98,7 @@ class OverlayWindow:
         self._window.setOpaque_(False)
         self._window.setBackgroundColor_(AppKit.NSColor.clearColor())
         self._window.setIgnoresMouseEvents_(True)
+        self._window.setHasShadow_(True)
         self._window.setCollectionBehavior_(
             AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
             | AppKit.NSWindowCollectionBehaviorStationary
@@ -91,95 +109,115 @@ class OverlayWindow:
         )
         self._window.setContentView_(content)
 
+        # Background with glassmorphism
         self._bg = _RoundedBackgroundView.alloc().initWithFrame_(
             AppKit.NSMakeRect(0, 0, width, height)
         )
         content.addSubview_(self._bg)
 
+        # Pulsing status indicator dot
+        self._indicator = AppKit.NSView.alloc().initWithFrame_(
+            AppKit.NSMakeRect(16, (height - 10) / 2, 10, 10)
+        )
+        self._indicator.setWantsLayer_(True)
+        self._indicator.layer().setCornerRadius_(5)
+        content.addSubview_(self._indicator)
+
+        # Main label
         self._label = AppKit.NSTextField.labelWithString_("")
-        self._label.setFrame_(AppKit.NSMakeRect(12, 8, width - 24, 24))
+        # Adjust frame to be next to the indicator
+        self._label.setFrame_(AppKit.NSMakeRect(36, (height - 24) / 2 - 1, width - 52, 24))
         self._label.setFont_(
-            AppKit.NSFont.systemFontOfSize_weight_(14, AppKit.NSFontWeightMedium)
+            AppKit.NSFont.systemFontOfSize_weight_(15, AppKit.NSFontWeightSemibold)
         )
         self._label.setTextColor_(AppKit.NSColor.whiteColor())
-        self._label.setAlignment_(AppKit.NSTextAlignmentCenter)
+        self._label.setAlignment_(AppKit.NSTextAlignmentLeft)
         self._label.setDrawsBackground_(False)
         self._label.setBezeled_(False)
         self._label.setEditable_(False)
         self._label.setSelectable_(False)
         content.addSubview_(self._label)
 
-        self._pulse_timer = None
-        self._pulse_on = True
         self._meeting_timer = None
 
     def show(self, text="Listening..."):
-        self._label.setStringValue_(text)
-        self._window.setAlphaValue_(1.0)
+        self.update_text(text)
+        self._window.setAlphaValue_(0.0)
         self._window.orderFrontRegardless()
-        if "Listening" in text or "Warming" in text:
-            self._start_pulse()
+        
+        # Smooth fade-in
+        AppKit.NSAnimationContext.beginGrouping()
+        AppKit.NSAnimationContext.currentContext().setDuration_(0.2)
+        self._window.animator().setAlphaValue_(1.0)
+        AppKit.NSAnimationContext.endGrouping()
 
     def update_text(self, text):
-        self._label.setStringValue_(text)
-        if "Listening" not in text and "Warming" not in text:
-            self._stop_pulse()
-            self._window.setAlphaValue_(1.0)
+        clean_text = text.strip()
+        self._label.setStringValue_(clean_text)
+        
+        # Color & Animation logic based on status
+        if "Listening" in clean_text:
+            self._set_indicator_style(AppKit.NSColor.systemRedColor(), True)
+        elif "Warming" in clean_text or "Summarizing" in clean_text or "Processing" in clean_text:
+            self._set_indicator_style(AppKit.NSColor.systemOrangeColor(), True)
+        elif "Meeting" in clean_text:
+            self._set_indicator_style(AppKit.NSColor.systemBlueColor(), False)
+        else:
+            self._set_indicator_style(AppKit.NSColor.systemGreenColor(), False)
+
+    def _set_indicator_style(self, color, pulse):
+        self._indicator.layer().setBackgroundColor_(color.CGColor())
+        self._indicator.layer().removeAnimationForKey_("pulse")
+        if pulse:
+            anim = Quartz.CABasicAnimation.animationWithKeyPath_("opacity")
+            anim.setFromValue_(1.0)
+            anim.setToValue_(0.3)
+            anim.setDuration_(0.8)
+            anim.setAutoreverses_(True)
+            anim.setRepeatCount_(float('inf'))
+            self._indicator.layer().addAnimation_forKey_(anim, "pulse")
+        else:
+            self._indicator.layer().setOpacity_(1.0)
 
     def hide(self):
-        self._stop_pulse()
-        self._window.orderOut_(None)
-
-    def _start_pulse(self):
-        if self._pulse_timer is not None:
-            return
-        self._pulse_on = True
-        self._pulse_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
-            0.7, True, self._pulse_tick
+        self._indicator.layer().removeAnimationForKey_("pulse")
+        # Smooth fade-out before hiding
+        AppKit.NSAnimationContext.beginGrouping()
+        AppKit.NSAnimationContext.currentContext().setDuration_(0.2)
+        self._window.animator().setAlphaValue_(0.0)
+        AppKit.NSAnimationContext.endGrouping()
+        
+        # Schedule the actual window removal after animation
+        def _hide_final(timer):
+            self._window.orderOut_(None)
+        AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+            0.2, False, _hide_final
         )
 
-    def _pulse_tick(self, timer):
-        self._pulse_on = not self._pulse_on
-        self._window.setAlphaValue_(1.0 if self._pulse_on else 0.5)
-
-    def _stop_pulse(self):
-        if self._pulse_timer is not None:
-            self._pulse_timer.invalidate()
-            self._pulse_timer = None
-        self._window.setAlphaValue_(1.0)
-
     def set_dictation_style(self):
-        """Dark pill for dictation mode."""
-        self._bg._fill_r = 0.1
-        self._bg._fill_g = 0.1
-        self._bg._fill_b = 0.1
-        self._bg.setNeedsDisplay_(True)
+        """Standard dark HUD pill."""
+        self._bg.setTint_withAlpha_(AppKit.NSColor.blackColor(), 0.0)
 
     def set_meeting_style(self):
         """Blue-tinted pill for meeting mode."""
-        self._bg._fill_r = 0.08
-        self._bg._fill_g = 0.15
-        self._bg._fill_b = 0.35
-        self._bg.setNeedsDisplay_(True)
+        self._bg.setTint_withAlpha_(AppKit.NSColor.systemBlueColor(), 0.2)
 
     def start_meeting_timer(self, get_elapsed):
         """Start a 1-second timer that updates the overlay with elapsed time."""
-        self._stop_pulse()
         self.set_meeting_style()
 
         def tick(timer):
             secs = int(get_elapsed())
             mins, s = divmod(secs, 60)
             hrs, m = divmod(mins, 60)
-            if hrs > 0:
-                time_str = f"{hrs}:{m:02d}:{s:02d}"
-            else:
-                time_str = f"{m:02d}:{s:02d}"
-            self._label.setStringValue_(f"  Meeting — {time_str}")
+            time_str = f"{hrs}:{m:02d}:{s:02d}" if hrs > 0 else f"{m:02d}:{s:02d}"
+            self._label.setStringValue_(f"Meeting — {time_str}")
+            # Ensure indicator stays blue during meeting
+            self._set_indicator_style(AppKit.NSColor.systemBlueColor(), False)
 
         self._window.setAlphaValue_(1.0)
         self._window.orderFrontRegardless()
-        self._label.setStringValue_("  Meeting — 00:00")
+        self._label.setStringValue_("Meeting — 00:00")
         self._meeting_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
             1.0, True, tick
         )
@@ -920,14 +958,14 @@ class TalkyApp:
 
     def _main_record_start(self):
         self.status_bar.set_recording(True)
-        self.overlay.show("  Listening...")
+        self.overlay.show("Listening...")
 
     def _main_record_stop(self):
         self.status_bar.set_recording(False)
-        self.overlay.update_text("  Processing...")
+        self.overlay.update_text("Processing...")
 
     def _main_processing(self):
-        self.overlay.update_text("  Processing...")
+        self.overlay.update_text("Processing...")
 
     def _main_idle(self):
         self.status_bar.set_recording(False)
@@ -935,7 +973,7 @@ class TalkyApp:
 
     def _main_warmup(self):
         self.status_bar.set_recording(False)
-        self.overlay.show("  Warming up models...")
+        self.overlay.show("Warming up models...")
 
     def _toggle_meeting(self):
         """Called from menu bar on main thread."""

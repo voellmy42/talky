@@ -218,7 +218,7 @@ def main():
             def on_summarizing():
                 _Dispatcher.dispatch_to_main(lambda: app_ref.overlay.stop_meeting_timer())
                 _Dispatcher.dispatch_to_main(lambda: app_ref.overlay.set_meeting_style())
-                _Dispatcher.dispatch_to_main(lambda: app_ref.overlay.show("  Summarizing..."))
+                _Dispatcher.dispatch_to_main(lambda: app_ref.overlay.show("Summarizing..."))
 
             def on_done(file_path):
                 nonlocal meeting_session
