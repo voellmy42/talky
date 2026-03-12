@@ -538,7 +538,7 @@ class SetupWizard:
             content.addSubview_(logo_view)
 
         # Title
-        title = AppKit.NSTextField.labelWithString_("Talky")
+        title = AppKit.NSTextField.labelWithString_("Welcome to Talky")
         title.setFrame_(AppKit.NSMakeRect(20, height - 200, width - 40, 32))
         title.setFont_(AppKit.NSFont.boldSystemFontOfSize_(26))
         title.setAlignment_(AppKit.NSTextAlignmentCenter)
@@ -546,10 +546,10 @@ class SetupWizard:
 
         # USP
         usp = AppKit.NSTextField.labelWithString_(
-            "Your AI-powered voice assistant.\n"
-            "Dictate naturally, get perfectly formatted text."
+            "Fast & accurate speech-to-text that stays on your Mac.\n"
+            "Your voice never leaves your machine. 100% local, 100% private."
         )
-        usp.setFrame_(AppKit.NSMakeRect(40, height - 260, width - 80, 40))
+        usp.setFrame_(AppKit.NSMakeRect(40, height - 265, width - 80, 50))
         usp.setFont_(AppKit.NSFont.systemFontOfSize_(14))
         usp.setAlignment_(AppKit.NSTextAlignmentCenter)
         usp.setTextColor_(AppKit.NSColor.secondaryLabelColor())
