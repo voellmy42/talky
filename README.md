@@ -1,38 +1,103 @@
-# Talky - Local Voice Dictation Pipeline
+<p align="center">
+  <img src="talky-logo.jpg" alt="Talky Logo" width="200" />
+</p>
 
-A zero-cost, privacy-first voice dictation tool that works locally on your desktop.
-Talky uses local models for speech-to-text (STT) and text formatting (LLM), enabling hotkey triggers to instantly transcribe and format your speech, injecting it directly into your active application.
+# Talky
 
-## Features
-- **Local STT**: Powered by `faster-whisper` with auto language detection (English, German, French, etc.).
-- **Local LLM Formatting**: Powered by `ollama` with `qwen2.5:3b` — multilingual-aware, preserves original language.
-- **Zero Privacy Risk**: All processing happens entirely on your machine.
-- **Fast Injection**: Sub-2s latency.
-- **Auto Formatting**: Removes filler words in any language without changing meaning or tone.
-- **Audio Feedback**: Subtle chimes on record start/stop.
-- **macOS Native UI**: Menu bar icon + floating overlay indicator.
+### **Privacy-First, Local Voice Dictation & Meeting Summarizer**
 
-## Prerequisites
-- macOS (Accessibility permission required)
-- Python 3.10+
-- [Ollama](https://ollama.com/) running locally with the `qwen2.5:3b` model installed (`ollama run qwen2.5:3b`).
+Talky is a high-performance, zero-cost, and absolute-privacy voice tool for macOS. It turns your speech into perfectly formatted text instantly, injecting it directly into your cursor position, or summarizes entire meetings into structured notes—all without a single byte leaving your machine.
 
-## Installation
-1. Clone the repository.
-2. Install dependencies:
-   ```bash
-   pip install sounddevice numpy requests pyautogui pyperclip faster-whisper pyobjc
-   ```
+---
 
-## Usage
-Run the main script:
+## 🚀 Key Features
+
+- 🎙️ **Local Speech-to-Text**: Powered by `faster-whisper` for lightning-fast transcription with auto language detection.
+- 🧠 **AI-Powered Formatting**: Seamlessly removes filler words ("um", "uh") and fixes grammar using `Ollama` and `qwen2.5:3b`.
+- ⏱️ **Sub-2s Latency**: Optimized for extreme speed—from hotkey release to text injection.
+- 🤝 **Meeting Mode**: Record long sessions and get structured Markdown notes (Summary, Key Points, Action Items) saved directly to your Documents.
+- 🔒 **Absolute Privacy**: No cloud, no API keys, no data sharing. Everything runs on your local CPU/GPU.
+- 🔊 **Audio Feedback**: Subtle chimes provide non-intrusive confirmation of recording states.
+- 🖱️ **macOS Integration**: Minimalist menu bar icon and a non-stealing-focus overlay indicator.
+
+---
+
+## 🛠️ Prerequisites
+
+Talky is designed for **macOS** and requires the following:
+
+1.  **Python 3.10+**
+2.  **[Ollama](https://ollama.com/)**: Installed and running.
+3.  **Model**: Pull the recommended model:
+    ```bash
+    ollama pull qwen2.5:3b
+    ```
+4.  **Accessibility Permissions**: Required for text injection (System Settings > Privacy & Security > Accessibility).
+
+---
+
+## 📦 Installation
+
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/voellmy42/talky.git
+    cd talky
+    ```
+
+2.  **Setup Virtual Environment**:
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate
+    ```
+
+3.  **Install Dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+---
+
+## ⌨️ Usage
+
+Run the application:
 ```bash
 python main.py
 ```
-- **Hold `Fn`** to speak — release to inject formatted text into your active window.
-- **Double-tap `Fn`** to toggle hands-free mode (tap again to stop).
 
-## Architecture
-- **Layer 1 (SOPs)**: See `architecture/` for standard operating procedures.
-- **Layer 2 (Router)**: `main.py` handles the logic loop.
-- **Layer 3 (Deterministic Tools)**: `tools/` contains STT, LLM, Audio, Output, and Feedback components.
+### **Controls**
+
+| Action | Control | Result |
+| :--- | :--- | :--- |
+| **Instant Dictation** | **Hold `Fn`** | Records while held. Releases to transcribing and inject. |
+| **Hands-Free Mode** | **Double-tap `Fn`** | Toggles recording on/off without holding. |
+| **Meeting Mode** | **Menu Bar > Start Meeting** | Records long-form audio. Stop to generate a summary. |
+
+> [!NOTE]
+> Meeting notes are stored in `~/Documents/Talky/Meetings/` as Markdown files.
+
+---
+
+## 🏗️ Architecture
+
+Talky follows a **3-Layer Architecture** for robustness and maintainability:
+
+1.  **Layer 1 (SOPs)**: Standard Operating Procedures defined in `architecture/`.
+    - [Audio Capture SOP](file:///Users/voellmy/Documents/antigravity/talky/architecture/audio_capture_sop.md)
+    - [STT (Speech-to-Text) SOP](file:///Users/voellmy/Documents/antigravity/talky/architecture/stt_sop.md)
+    - [LLM Cleaner SOP](file:///Users/voellmy/Documents/antigravity/talky/architecture/llm_cleaner_sop.md)
+    - [Text Injection SOP](file:///Users/voellmy/Documents/antigravity/talky/architecture/text_injection_sop.md)
+2.  **Layer 2 (Router)**: `main.py` manages the logic loop and state transitions.
+3.  **Layer 3 (Deterministic Tools)**: Specialized tools in `tools/` for audio, STT, LLM, and output.
+
+---
+
+## 📜 Project Constitution
+
+Talky is guided by a strict set of behavioral rules and architectural invariants. See [gemini.md](file:///Users/voellmy/Documents/antigravity/talky/gemini.md) for the full project constitution.
+
+---
+
+<p align="center">
+  <i>Part of the Maison Voellmy Collection</i><br>
+  © 2026 Maison Voellmy. Alle Rechte vorbehalten.
+</p>
