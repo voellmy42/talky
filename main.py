@@ -1,3 +1,7 @@
+import multiprocessing
+import sys
+import os
+import fcntl
 import time
 import threading
 import subprocess
@@ -17,6 +21,19 @@ from tools.meeting_llm import MeetingSummarizer
 
 _talky_started_ollama = False
 _ollama_start_method = None  # "app" or "serve"
+_instance_lock_file = None  # keep reference to prevent GC closing the lock
+
+
+def _acquire_single_instance_lock():
+    """Prevent multiple Talky instances from running simultaneously."""
+    global _instance_lock_file
+    lock_path = os.path.expanduser("~/.talky.lock")
+    _instance_lock_file = open(lock_path, "w")
+    try:
+        fcntl.flock(_instance_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("[startup] Another Talky instance is already running. Exiting.", flush=True)
+        sys.exit(0)
 
 
 def _needs_setup() -> bool:
@@ -150,6 +167,7 @@ def stop_ollama():
 
 
 def main():
+    _acquire_single_instance_lock()
     print("--- Initializing Talky ---", flush=True)
 
     needs_setup = _needs_setup()
@@ -311,4 +329,5 @@ def main():
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

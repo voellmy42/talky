@@ -526,8 +526,8 @@ class SetupWizard:
         )
 
         # Logo
-        import os
-        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "talky-logo.jpg")
+        from tools.core_paths import resource_path
+        logo_path = resource_path("talky-logo.jpg")
         logo_img = AppKit.NSImage.alloc().initWithContentsOfFile_(logo_path)
         if logo_img:
             logo_view = AppKit.NSImageView.alloc().initWithFrame_(
