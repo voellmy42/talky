@@ -8,6 +8,21 @@ import subprocess
 import shutil
 import ApplicationServices
 from app import TalkyApp, _Dispatcher
+
+# When launched as a .app from Finder, macOS provides only a minimal PATH
+# (/usr/bin:/bin:/usr/sbin:/sbin). Patch in common tool locations so that
+# ollama, pgrep, etc. are found regardless of how the app was launched.
+_EXTRA_PATHS = [
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+]
+_current_path = os.environ.get("PATH", "")
+_path_parts = _current_path.split(os.pathsep)
+for _p in _EXTRA_PATHS:
+    if _p not in _path_parts:
+        _path_parts.insert(0, _p)
+os.environ["PATH"] = os.pathsep.join(_path_parts)
 from tools.core_audio import AudioCaptureTool
 from tools.core_stt import STTTool
 from tools.core_llm import LLMFormatter
