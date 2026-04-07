@@ -3,7 +3,7 @@ from datetime import datetime
 
 
 class MeetingSummarizer:
-    def __init__(self, host="http://localhost:11434", model="qwen2.5:3b"):
+    def __init__(self, host="http://localhost:11434", model="gemma4:latest"):
         self.host = f"{host}/api/generate"
         self.model = model
         self._lang_names = {"de": "German", "en": "English"}

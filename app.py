@@ -480,7 +480,7 @@ class _SetupTarget(AppKit.NSObject):
 class SetupWizard:
     """Two-page onboarding wizard: welcome screen then setup checklist."""
 
-    MODEL_NAME = "qwen2.5:3b"
+    MODEL_NAME = "gemma4:latest"
 
     def __init__(self, on_complete):
         """
@@ -812,7 +812,7 @@ class SetupWizard:
     # ---- Actions ----
 
     def _install_model(self):
-        """Run 'ollama pull qwen2.5:3b' in a background thread."""
+        """Run 'ollama pull gemma4:latest' in a background thread."""
         self._installing_model = True
         self._ollama_button.setHidden_(True)
         self._ollama_label.setStringValue_("Installing model...")

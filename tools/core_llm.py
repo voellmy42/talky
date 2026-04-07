@@ -2,10 +2,10 @@ import requests
 import json
 
 class LLMFormatter:
-    def __init__(self, host="http://localhost:11434", model="qwen2.5:3b"):
+    def __init__(self, host="http://localhost:11434", model="gemma4:latest"):
         """
         Connects to a local Ollama instance.
-        Defaults to qwen2.5:3b running locally.
+        Defaults to gemma4:latest running locally.
         """
         self.host = f"{host}/api/generate"
         self.model = model

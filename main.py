@@ -74,7 +74,7 @@ def _needs_setup() -> bool:
             result = subprocess.run(
                 ["ollama", "list"], capture_output=True, text=True, timeout=5
             )
-            ollama_ok = "qwen2.5:3b" in result.stdout
+            ollama_ok = "gemma4" in result.stdout
     except Exception:
         pass
 
@@ -191,10 +191,10 @@ def main():
         ensure_ollama_running()
 
     stt_tool = STTTool(model_size="small", compute_type="int8")
-    llm_tool = LLMFormatter(host="http://localhost:11434", model="qwen2.5:3b")
+    llm_tool = LLMFormatter(host="http://localhost:11434", model="gemma4:latest")
     output_tool = OutputInjector()
     stats_store = StatsStore()
-    meeting_summarizer = MeetingSummarizer(host="http://localhost:11434", model="qwen2.5:3b")
+    meeting_summarizer = MeetingSummarizer(host="http://localhost:11434", model="gemma4:latest")
 
     print("--- Models loaded. Starting app... ---", flush=True)
 
