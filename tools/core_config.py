@@ -65,6 +65,14 @@ class ConfigManager:
         mode = self._data.get("formatting_mode", "fast")
         return mode if mode in self.VALID_FORMATTING_MODES else "fast"
 
+    def get_ai_editing_enabled(self) -> bool:
+        # Preserve the user's explicit AI choice from the polishing preview.
+        return self._data.get('ai_editing_enabled', self.get_formatting_mode() == 'polished') is True
+
+    def set_ai_editing_enabled(self, enabled):
+        self._data['ai_editing_enabled'] = bool(enabled)
+        self.save()
+
     def set_formatting_mode(self, mode: str):
         if mode not in self.VALID_FORMATTING_MODES:
             raise ValueError(f"Unsupported formatting mode: {mode}")

@@ -14,15 +14,15 @@ Talky is a high-performance, zero-cost, and absolute-privacy voice tool for macO
 
 - 🎙️ **Local Speech-to-Text**: Powered by MLX Whisper on Apple Silicon.
 - ⚡️ **Fast Mode**: The default path formats locally without waiting for an LLM.
-- 🧠 **Polished Preview**: Optional embedded MLX-LM formatting, with no separate Ollama service.
+- 🧠 **One-Button Editing**: Select text, hold your usual key and say how to change it. Local AI handles the edit.
 - ⏱️ **Measured Latency**: Every dictation reports transcription, formatting, paste, and total response time.
 - 🎧 **On-Demand Capture**: Models stay ready, while the microphone opens only for recording and is released on stop/cancel.
 - 🤝 **Meeting Mode**: Record long sessions and get structured Markdown notes (Summary, Key Points, Action Items) saved directly to your Documents.
 - 🔒 **Absolute Privacy**: No cloud, no API keys, no data sharing. Everything runs on your local CPU/GPU.
 - 🔊 **Audio Feedback**: Subtle chimes provide non-intrusive confirmation of recording states.
 - 🖱️ **macOS Integration**: Minimalist menu bar icon and a non-stealing-focus overlay indicator.
-- **Destination checks**: Checks the original app, window, text field and available caret selection before sending paste. If the destination changes or cannot be identified, use **Copy Last Dictation** from the menu.
-- **Cancellation**: Press **Esc** or choose **Cancel Dictation** to discard a recording or prevent a processing result from being pasted.
+- **Destination checks**: Checks the original app, window, text field and available caret selection before sending paste. If the destination changes or cannot be identified, use **Copy Last Result** from the menu.
+- **Cancellation**: Press **Esc** or choose **Cancel** to discard a recording or prevent a processing result from being pasted.
 - **Recovery**: Copy the latest dictation or original transcript from the menu, or clear them. Text stays in memory until cleared, cancelled, replaced or quit.
 
 ---
@@ -73,45 +73,68 @@ python main.py
 
 | Action | Control | Result |
 | :--- | :--- | :--- |
-| **Instant Dictation** | **Hold `Fn`** | Records while held. Releases to transcribing and inject. |
+| **Voice Input** | **Hold `Fn`** | No selection: Fast dictation. Selected editable text: speak an edit request, then release. |
 | **Hands-Free Mode** | **Double-tap `Fn`** | Toggles recording on/off without holding. |
-| **Start / Finish** | **§** or **Menu > Start / Finish Dictation** | Toggles hands-free recording. The shortcut press is consumed so § is not typed into your prompt. |
-| **Cancel Dictation** | **Esc** or menu | Discards capture or blocks late paste. If inference has started, wait for it to finish before recording again. |
-| **Recover Text** | **Menu > Copy Last Dictation / Copy Original Transcript** | Copies retained text without attempting another paste. |
+| **Start / Finish** | **§** or **Menu > Start / Finish Voice Input** | Toggles hands-free recording. The shortcut press is consumed so § is not typed into your prompt. |
+| **Cancel** | **Esc** or menu | Discards capture or blocks late paste. If inference has started, wait for it to finish before recording again. |
+| **Recover Text** | **Menu > Copy Last Result / Copy Original Text** | Copies retained text without attempting another paste. |
 | **Meeting Mode** | **Menu Bar > Start Meeting** | Records long-form audio. Stop to generate a summary. |
 
-### **Formatting Modes**
+### **One-button voice editing**
 
-| Mode | Best for | Behavior |
-| :--- | :--- | :--- |
-| **Fast (default)** | Everyday dictation | Removes hesitation sounds and tidies spacing locally, then pastes immediately. |
-| **Polished (local AI preview)** | Experimental punctuation and layout cleanup | Uses embedded Qwen3-1.7B (4-bit), validates the complete result, and falls back to Fast cleanup. |
+With a cursor and no selection, your usual shortcut always uses Fast dictation.
+With selected editable text, the same shortcut records an instruction such as
+“Make this shorter,” “Turn this into a bullet list,” or “Übersetze das ins Englische.”
+The overlay shows **Dictating · EN** or **Editing selection · DE** before you speak.
+The Fast/Polished choice is retired from the menu.
 
-Choose the mode from **Menu Bar > Formatting**. Talky remembers both formatting mode and language between launches. The Productivity Stats menu shows the response time of the latest dictation.
+Choose **Set Up / Load AI Editing…** to download the optional local editing model
+(approximately 2.28 GB, Qwen3-4B in 4-bit form). This is a larger model than the
+previous polishing preview; its weights are installed separately. Turn **AI
+selection editing** off to unload it. Model files are pinned and hash-verified;
+loading, source-language detection and inference stay on your Mac. Ordinary
+utterances do not run through the language model.
 
-Choose **Menu > Dictation Shortcut** to use **§** (default), **Control+Shift+Space**, or **Fn only**. Changes apply immediately and persist across launches. § is matched by the character produced by the keyboard layout, rather than a fixed physical key. Command/Control/Option combinations with § retain their ordinary behavior. F8 is no longer a Talky shortcut.
+**Speech Language** selects recognition of your dictation or editing instruction.
+The edited text keeps the selection's language unless you explicitly request
+translation. An English selection with “Mach das kürzer” should stay English.
+English and German settings persist between launches. They have been checked with
+synthetic speech; real voices, accents and mixed-language speech still need testing.
 
-Choose **Download / Load AI Model…** or select Polished to install the optional model (approximately 0.98 GB). The menu shows progress, cancellation and retry. Installation downloads pinned files from Hugging Face and verifies their hashes. After installation, model loading and inference use local files. No dictation content is sent to Hugging Face. Fast mode never loads the language model.
+The selection must remain in the original app, window and field, with the same
+range and content, for replacement. Changed focus keeps the edit for **Copy Last
+Result**; **Copy Original Text** recovers the selected source. Failed, cancelled,
+truncated or unchanged edits do not paste anything. A failed edit never falls back
+to inserting the spoken instruction. The editor conservatively rejects changes
+to written numbers, weekdays, negation and time conditions; this can reject valid
+edits and does not prove unchanged meaning. Changing factual values is outside
+this first preview. Review AI rewrites and use the destination's normal Undo or
+recover the original when needed.
 
-Polished is a development preview, not a general rewriting tool. It permits punctuation/case/layout changes and limited hesitation removal, rejecting changed substantive words, numbers, identifiers, paths and flags. The validator distinguishes German “um” from an English hesitation. It can still miss semantic changes caused by punctuation and can reject useful edits. Self-correction and grammar rewriting are not enabled.
+Editing has a cooperative 12-second operation budget, including model preparation;
+a running GPU kernel cannot be interrupted immediately. Weights unload after five
+idle minutes or when AI editing is disabled. Low-memory handling remains heuristic.
+Long passages can be rejected without changing the original selection.
 
-Warm generation budgets are 1.5 seconds for up to 80 words and 4 seconds for longer inputs. These are cooperative deadlines checked between generated steps and after GPU cleanup; they cannot interrupt a running GPU operation. A timed-out, truncated, failed or rejected result uses deterministic Fast cleanup and is identified as a fallback in the status message. No partial model output is pasted. Escape cancels delivery and signals the generation loop. The model unloads after five idle minutes or when Fast is selected; the next Polished request can fall back while it reloads. Talky never starts or quits Ollama.
+Choose **Menu > Dictation Shortcut** to use **§** (default), **Control+Shift+Space**,
+or **Fn only**. Each uses the same selection-aware route. Changes persist and apply
+immediately. § is matched by its keyboard-layout character, not a fixed physical key.
 
-The microphone opens only for an explicit dictation or meeting recording and is released on stop/cancel. Idle pre-roll is disabled. Speak after the start chime so the microphone has time to open. No dictation audio is written to disk. Meeting mode intentionally saves notes to disk. Recognition and polishing may still be running after cancellation, but the cancelled result will not be pasted.
+The microphone opens only for an explicit dictation or meeting recording and is released on stop/cancel. Idle pre-roll is disabled. Speak after the start chime so the microphone has time to open. No dictation audio is written to disk. Meeting mode intentionally saves notes to disk. Recognition or model work may still be running after cancellation, but the cancelled result will not be pasted.
 
 Destination checks depend on each application's Accessibility support. Unsupported fields, changed selections and uncertain destinations retain text for explicit copying. A sent paste shortcut does not prove the destination accepted the text. Enter is never sent automatically.
 
 ### Development build
 
 ```bash
-.venv-mlx/bin/python -m unittest test_talky_v2 test_sessions test_delivery test_mlx_formatter -v
-TALKY_DIST_PATH=dist/mlx-preview TALKY_BUILD_PATH=build/mlx-preview ./build.sh
-dist/mlx-preview/Talky.app/Contents/MacOS/Talky --check-build
+.venv-mlx/bin/python -m unittest test_talky_v2 test_sessions test_delivery test_mlx_formatter test_selection_editing -v
+TALKY_DIST_PATH=dist/one-button-preview TALKY_BUILD_PATH=build/one-button-preview ./build.sh
+dist/one-button-preview/Talky.app/Contents/MacOS/Talky --check-build
 ```
 
 This creates an ad-hoc signed Apple Silicon development app alongside the existing build. `TALKY_VENV` overrides the build environment if needed. Distribution to colleagues still requires Developer ID signing, notarization and validation on both M1 and M4, including managed work Macs. Rebuilding an ad-hoc signed app can invalidate its saved Accessibility approval; quit other Talky copies before trying a preview.
 
-See [embedded AI preview and benchmark results](docs/mlx-preview.md) for offline model checks, benchmark reproduction and quality limitations. The legacy Ollama formatter remains available to development scripts; Meeting summaries still use Ollama.
+See [one-button editing and verification](docs/one-button-preview.md) for offline model checks, benchmark reproduction and quality limitations. Legacy polishing APIs remain available to development scripts. Meeting summaries still use Ollama; meeting capture is microphone-only in this milestone.
 
 > [!NOTE]
 > Meeting notes are stored in `~/Documents/Talky/Meetings/` as Markdown files.

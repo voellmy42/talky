@@ -1,7 +1,7 @@
 # Text Injection Standard Operating Procedure (SOP)
 
 ## Purpose
-Deliver text only when the original destination can still be identified. Otherwise retain it in memory for explicit Copy Last Dictation.
+Deliver text only when the original destination can still be identified. Otherwise retain it in memory for explicit Copy Last Result.
 
 ## Tool Execution Context
 - **Script path**: `tools/core_output.py`
@@ -22,10 +22,10 @@ Deliver text only when the original destination can still be identified. Otherwi
 - **Rapid Dictations**: Use a generation counter so an older restore thread cannot overwrite a newer dictation payload.
 - **OS Agnostic**: Use environment checks to route to `Ctrl+V` or `Cmd+V` as necessary.
 - **Focus Preservation**: Ensure the act of injection does not steal focus from the user's active application.
-- **Destination Identity**: Compare the starting PID, Accessibility window and text element, plus selection when available. Reject unsupported and secure fields. Recheck immediately before dispatch.
+- **Destination Identity**: Compare the starting PID, Accessibility window and text element, plus selection when available. For voice editing, require the same UTF-16 range and exact selected text, and confirm the field remains editable. Reject unsupported and secure fields. Recheck immediately before dispatch.
 - **Dispatch Guard**: Validate the session generation and clipboard ownership before posting paste. Cancellation must block late output. Never send Enter.
 - **Outcome**: `sent` means paste events were dispatched, not destination acceptance. `available` means retained text can be explicitly copied. Never type characters as an automatic fallback.
 
 ## Error States & Handling
 - *Clipboard Access Error* -> Restore the previous clipboard if still owned; retain transcript for explicit copy.
-- *No Active Window / Focus Lost* -> Do not replace the clipboard or paste. Show a brief outcome and keep Copy Last Dictation available.
+- *No Active Window / Focus Lost* -> Do not replace the clipboard or paste. Show a brief outcome and keep Copy Last Result available.

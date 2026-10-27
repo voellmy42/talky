@@ -11,6 +11,7 @@ class Session:
     language: str
     formatting_mode: str
     cancelled: threading.Event = field(default_factory=threading.Event)
+    selected_text: str = ''
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,8 @@ class Result:
     target: object
     outcome: str
     formatting_reason: str = ''
+    mode: str = 'dictation'
+    instruction: str = ''
 
 
 class DictationController:
@@ -52,9 +55,23 @@ class DictationController:
         with self._lock:
             if self._closed or self._state != 'ready':
                 return False
+            if getattr(target, 'selection_kind', 'caret') == 'unavailable':
+                self._status('ready', 'Cannot read this selection — try a supported editable field')
+                return False
+            selected = getattr(target, 'selected_text', '')
+            if selected and not selected.strip():
+                self._status('ready', 'Select some words to edit')
+                return False
+            if len(selected) > 12000:
+                self._status('ready', 'Select a shorter passage for voice editing')
+                return False
             self._generation += 1
-            self._session = Session(self._generation, target, language, formatting_mode)
-            self._status('recording', 'Listening… Esc to cancel')
+            self._session = Session(self._generation, target, language, formatting_mode,
+                                    selected_text=selected)
+            if selected:
+                self._last = Result(selected, selected, target, 'available', mode='edit')
+            self._status('recording', ('Editing selection' if selected else 'Dictating')
+                         + ' · ' + language.upper() + ' — Esc to cancel')
             return True
 
     def cancel(self):
@@ -93,7 +110,8 @@ class DictationController:
                 self._status('ready', 'No audio captured')
                 return None
             self._processing = True
-            self._status('transcribing', 'Transcribing… Esc to cancel')
+            self._status('transcribing', ('Understanding your edit' if session.selected_text
+                         else 'Transcribing') + ' · ' + session.language.upper() + '… Esc to cancel')
 
         timings = {}
         try:
@@ -106,11 +124,36 @@ class DictationController:
                 if not raw:
                     self._status('ready', 'No speech detected')
                     return None
-                self._last = Result(raw, raw, session.target, 'available')
-                self._status('formatting', 'Polishing… Esc to cancel' if session.formatting_mode == 'polished' else 'Formatting…')
+                self._last = Result(session.selected_text or raw, session.selected_text or raw,
+                                    session.target, 'available', mode='edit' if session.selected_text else 'dictation',
+                                    instruction=raw if session.selected_text else '')
+                self._status('formatting', 'Applying your edit… Esc to cancel' if session.selected_text else
+                             ('Polishing… Esc to cancel' if session.formatting_mode == 'polished' else 'Formatting…'))
             start = time.perf_counter()
             formatting_reason = ''
-            if getattr(type(self.formatter), 'supports_format_requests', False) is True:
+            if session.selected_text:
+                edited = self.formatter.edit_session(session.selected_text, raw,
+                              language=session.language, session_generation=session.generation,
+                              cancel=session.cancelled)
+                timings['ai_generation_seconds'] = edited.generation_seconds
+                timings['formatting_seconds'] = time.perf_counter() - start
+                with self._lock:
+                    if session.generation != self._generation:
+                        return None
+                    if edited.outcome != 'edited' or not edited.text.strip():
+                        reasons = {'not_installed': 'AI setup needed', 'downloading': 'model downloading',
+                                   'not_ready': 'AI not ready', 'disabled': 'AI editing disabled',
+                                   'deadline': 'AI took too long', 'length_limit': 'passage too long',
+                                   'invalid_output': 'no usable edit', 'model_error': 'AI unavailable',
+                                   'protected_details': 'Edit changed a protected detail'}
+                        self._status('ready', reasons.get(edited.reason, 'Edit unavailable')
+                                     + ' — original selection kept')
+                        return timings
+                    if edited.text == session.selected_text:
+                        self._status('ready', 'No change returned — original selection kept')
+                        return timings
+                text = edited.text
+            elif getattr(type(self.formatter), 'supports_format_requests', False) is True:
                 formatted = self.formatter.format_session(
                     raw, language=session.language, mode=session.formatting_mode,
                     session_generation=session.generation, cancel=session.cancelled)
@@ -125,7 +168,9 @@ class DictationController:
                 if session.generation != self._generation:
                     # Do not retain a cancelled transcript that completed late.
                     return None
-                self._last = Result(raw, text, session.target, 'available', formatting_reason)
+                self._last = Result(session.selected_text or raw, text, session.target, 'available',
+                                    formatting_reason, 'edit' if session.selected_text else 'dictation',
+                                    raw if session.selected_text else '')
                 self._status('delivering', 'Checking destination…')
 
             start = time.perf_counter()
@@ -137,14 +182,17 @@ class DictationController:
             with self._lock:
                 if session.generation != self._generation:
                     return None
-                self._last = Result(raw, text, session.target, outcome, formatting_reason)
+                self._last = Result(session.selected_text or raw, text, session.target, outcome,
+                                    formatting_reason, 'edit' if session.selected_text else 'dictation',
+                                    raw if session.selected_text else '')
                 if outcome == 'sent':
-                    message = 'Paste sent'
+                    message = 'Edit complete' if session.selected_text else 'Dictation complete'
                     if formatting_reason:
                         message += ' — Fast fallback (' + formatting_reason.replace('_', ' ') + ')'
                     self._status('ready', message)
                 else:
-                    self._status('ready', 'Text ready — Copy Last Dictation')
+                    self._status('ready', 'Selection changed — edit kept for copying' if session.selected_text
+                                 else 'Text ready — Copy Last Result')
             if released_at is not None:
                 timings['release_to_paste_sent_seconds' if outcome == 'sent' else 'release_to_result_seconds'] = time.perf_counter() - released_at
             return timings

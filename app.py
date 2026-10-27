@@ -5,6 +5,7 @@ import subprocess
 import threading
 import Quartz
 import AVFoundation
+from Foundation import NSString
 
 from tools.core_config import ConfigManager
 
@@ -83,7 +84,7 @@ class OverlayWindow:
     """Modern floating pill showing recording, warming up, or meeting state."""
 
     def __init__(self):
-        width, height = 360, 48
+        width, height = 480, 64
         screen = AppKit.NSScreen.mainScreen().frame()
         # Position on the visible screen, above the Dock.
         screen = AppKit.NSScreen.mainScreen().visibleFrame()
@@ -129,7 +130,10 @@ class OverlayWindow:
         # Main label
         self._label = AppKit.NSTextField.labelWithString_("")
         # Adjust frame to be next to the indicator
-        self._label.setFrame_(AppKit.NSMakeRect(36, (height - 24) / 2 - 1, width - 52, 24))
+        self._label.setFrame_(AppKit.NSMakeRect(36, 10, width - 52, height - 20))
+        self._label.setMaximumNumberOfLines_(2)
+        self._label.cell().setWraps_(True)
+        self._label.cell().setScrollable_(False)
         self._label.setFont_(
             AppKit.NSFont.systemFontOfSize_weight_(15, AppKit.NSFontWeightSemibold)
         )
@@ -161,11 +165,20 @@ class OverlayWindow:
     def update_text(self, text):
         clean_text = text.strip()
         self._label.setStringValue_(clean_text)
+        width = self._window.contentView().bounds().size.width
+        height = self._window.contentView().bounds().size.height
+        text_width = NSString.stringWithString_(clean_text).sizeWithAttributes_(
+            {AppKit.NSFontAttributeName: self._label.font()}).width
+        label_height = 24 if text_width <= width - 52 else height - 20
+        self._label.setFrame_(AppKit.NSMakeRect(36, (height - label_height) / 2 - 1,
+                                              width - 52, label_height))
         
         # Color & Animation logic based on status
-        if "Listening" in clean_text:
+        if "Listening" in clean_text or clean_text.startswith('Dictating'):
             self._set_indicator_style(AppKit.NSColor.systemRedColor(), True)
-        elif "Warming" in clean_text or "Summarizing" in clean_text or "Processing" in clean_text:
+        elif clean_text.startswith('Editing selection'):
+            self._set_indicator_style(AppKit.NSColor.systemPurpleColor(), True)
+        elif any(word in clean_text for word in ('Warming', 'Summarizing', 'Processing', 'Transcribing', 'Understanding', 'Applying')):
             self._set_indicator_style(AppKit.NSColor.systemOrangeColor(), True)
         elif "Meeting" in clean_text:
             self._set_indicator_style(AppKit.NSColor.systemBlueColor(), False)
@@ -250,7 +263,7 @@ class _MenuTarget(AppKit.NSObject):
 
     _quit_fn = None
     _lang_fn = None
-    _formatting_fn = None
+    _ai_enabled_fn = None
     _meeting_fn = None
     _cancel_fn = None
     _copy_fn = None
@@ -312,9 +325,9 @@ class _MenuTarget(AppKit.NSObject):
             self._lang_fn(sender.representedObject())
 
     @objc.typedSelector(b"v@:@")
-    def selectFormatting_(self, sender):
-        if self._formatting_fn:
-            self._formatting_fn(sender.representedObject())
+    def toggleAIEditing_(self, sender):
+        if self._ai_enabled_fn:
+            self._ai_enabled_fn()
 
     @objc.typedSelector(b"v@:@")
     def toggleMeeting_(self, sender):
@@ -330,23 +343,18 @@ class StatusBarController:
         ("en", "English"),
     ]
 
-    FORMATTING_MODES = [
-        ("fast", "Fast (instant)"),
-        ("polished", "Polished (local AI preview)"),
-    ]
-
     def __init__(self, on_quit, config=None):
         self._on_quit = on_quit
         self._config = config or ConfigManager()
         self._language = self._config.get_language()
-        self._formatting_mode = self._config.get_formatting_mode()
+        self._ai_editing_enabled = self._config.get_ai_editing_enabled()
         self._toggle_shortcut = self._config.get_toggle_shortcut()
         self._session_message = None
-        self.on_formatting_change = None
+        self.on_ai_editing_change = None
         self._menu_target = _MenuTarget.alloc().init()
         self._menu_target._quit_fn = on_quit
         self._menu_target._lang_fn = self._set_language
-        self._menu_target._formatting_fn = self._set_formatting_mode
+        self._menu_target._ai_enabled_fn = lambda: self._set_ai_editing_enabled(not self._ai_editing_enabled)
         self._menu_target._shortcut_fn = self._set_toggle_shortcut
 
         self._status_item = AppKit.NSStatusBar.systemStatusBar().statusItemWithLength_(
@@ -398,11 +406,11 @@ class StatusBarController:
 
         self._dictation_items = {}
         for title, action in (
-            ('Start / Finish Dictation', 'toggleDictation:'),
-            ('Cancel Dictation (Esc)', 'cancelDictation:'),
-            ('Copy Last Dictation', 'copyDictation:'),
-            ('Copy Original Transcript', 'copyOriginal:'),
-            ('Clear Last Dictation', 'clearDictation:'),
+            ('Start / Finish Voice Input', 'toggleDictation:'),
+            ('Cancel (Esc)', 'cancelDictation:'),
+            ('Copy Last Result', 'copyDictation:'),
+            ('Copy Original Text', 'copyOriginal:'),
+            ('Clear Last Result', 'clearDictation:'),
         ):
             item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, '')
             item.setTarget_(self._menu_target)
@@ -475,7 +483,7 @@ class StatusBarController:
 
         # ---- Language selector ----
         lang_header = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Language", None, ""
+            "Speech Language", None, ""
         )
         lang_header.setEnabled_(False)
         menu.addItem_(lang_header)
@@ -494,31 +502,22 @@ class StatusBarController:
 
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
-        # ---- Formatting mode ----
-        formatting_header = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Formatting", None, ""
-        )
-        formatting_header.setEnabled_(False)
-        menu.addItem_(formatting_header)
-
-        self._formatting_items = {}
-        for code, label in self.FORMATTING_MODES:
-            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                f"  {label}", "selectFormatting:", ""
-            )
-            item.setTarget_(self._menu_target)
-            item.setRepresentedObject_(code)
-            self._formatting_items[code] = item
-            menu.addItem_(item)
-
-        self._update_formatting_checks()
+        hint = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            'Hold to dictate · Select text to voice-edit', None, '')
+        hint.setEnabled_(False)
+        menu.addItem_(hint)
+        self._ai_enabled_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            'AI selection editing', 'toggleAIEditing:', '')
+        self._ai_enabled_item.setTarget_(self._menu_target)
+        self._ai_enabled_item.setState_(AppKit.NSControlStateValueOn if self._ai_editing_enabled else AppKit.NSControlStateValueOff)
+        menu.addItem_(self._ai_enabled_item)
 
         self._ai_status_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            'AI: Not loaded (Fast needs no AI model)', None, '')
+            'AI editing: Not loaded', None, '')
         self._ai_status_item.setEnabled_(False)
         menu.addItem_(self._ai_status_item)
         self._ai_install_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            'Download / Load AI Model…', 'installAI:', '')
+            'Set Up / Load AI Editing…', 'installAI:', '')
         self._ai_install_item.setTarget_(self._menu_target)
         menu.addItem_(self._ai_install_item)
         self._ai_cancel_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -553,30 +552,23 @@ class StatusBarController:
     def get_language(self):
         return self._language
 
-    def _update_formatting_checks(self):
-        for code, item in self._formatting_items.items():
-            state = (
-                AppKit.NSControlStateValueOn
-                if code == self._formatting_mode
-                else AppKit.NSControlStateValueOff
-            )
-            item.setState_(state)
+    def _set_ai_editing_enabled(self, enabled, notify=True):
+        self._ai_editing_enabled = enabled
+        self._config.set_ai_editing_enabled(enabled)
+        self._ai_enabled_item.setState_(AppKit.NSControlStateValueOn if enabled else AppKit.NSControlStateValueOff)
+        if notify and self.on_ai_editing_change:
+            self.on_ai_editing_change(enabled)
 
-    def _set_formatting_mode(self, mode, notify=True):
-        self._formatting_mode = mode
-        self._config.set_formatting_mode(mode)
-        self._update_formatting_checks()
-        print(f"[app] Formatting mode set to: {mode}", flush=True)
-        if notify and self.on_formatting_change:
-            self.on_formatting_change(mode)
+    def get_ai_editing_enabled(self):
+        return self._ai_editing_enabled
 
     def set_ai_status(self, state, message):
-        self._ai_status_item.setTitle_('AI: ' + message)
+        self._ai_status_item.setTitle_('AI editing: ' + message)
         self._ai_install_item.setEnabled_(state not in ('downloading', 'loading', 'ready'))
         self._ai_cancel_item.setEnabled_(state == 'downloading')
 
     def get_formatting_mode(self):
-        return self._formatting_mode
+        return 'fast'  # Ordinary dictation always stays fast; selection chooses AI editing.
 
     def get_toggle_shortcut(self):
         return self._toggle_shortcut
@@ -1023,7 +1015,7 @@ class TalkyApp:
         self._output = None
         self._formatter = None
         self._ai_download_prompt_open = False
-        self.status_bar.on_formatting_change = self._formatting_changed
+        self.status_bar.on_ai_editing_change = self._ai_editing_changed
         self.status_bar._menu_target._ai_install_fn = self._install_ai
         self.status_bar._menu_target._ai_cancel_fn = self._cancel_ai_download
         self._notice_timer = None
@@ -1087,10 +1079,10 @@ class TalkyApp:
                 self._audio.close()
             self._on_session_status('error', 'Speech engine unavailable; restart Talky')
 
-    def _formatting_changed(self, mode):
+    def _ai_editing_changed(self, enabled):
         if self._formatter:
-            self._formatter.set_enabled(mode == 'polished')
-            if mode == 'polished' and self._formatter.state == 'not_installed':
+            self._formatter.set_enabled(enabled)
+            if enabled and self._formatter.state == 'not_installed':
                 self._install_ai()
 
     def _install_ai(self):
@@ -1100,14 +1092,15 @@ class TalkyApp:
         if self._ai_download_prompt_open or self._formatter.state in ('downloading', 'loading'):
             return
         if self._formatter.store.installed() and self._formatter.state != 'failed':
-            self.status_bar._set_formatting_mode('polished')
+            self.status_bar._set_ai_editing_enabled(True)
             return
         size = self._formatter.store.download_bytes / 1_000_000_000
         alert = AppKit.NSAlert.alloc().init()
         alert.setMessageText_('Download local AI model?')
         alert.setInformativeText_(
-            f'Polished mode downloads approximately {size:.2f} GB from Hugging Face. '
-            'After installation, formatting runs on this Mac without Ollama. '
+            f'Voice editing downloads approximately {size:.2f} GB from Hugging Face. '
+            'Select text, hold your usual key and say the change you want. '
+            'Editing runs on this Mac without Ollama; ordinary dictation stays fast. '
             'Fast dictation stays available during the download. This is a preview.')
         alert.addButtonWithTitle_('Download')
         alert.addButtonWithTitle_('Later')
@@ -1116,7 +1109,7 @@ class TalkyApp:
             if alert.runModal() == AppKit.NSAlertFirstButtonReturn:
                 # Set the selection without invoking the mode-change handler:
                 # a failed/instant download must not recursively reopen this alert.
-                self.status_bar._set_formatting_mode('polished', notify=False)
+                self.status_bar._set_ai_editing_enabled(True, notify=False)
                 self._formatter.set_enabled(True)
                 self._formatter.install()
         finally:
@@ -1142,7 +1135,7 @@ class TalkyApp:
         if result and self._output:
             try:
                 self._output.copy(result.raw if original else result.text)
-                self._show_notice('Original copied' if original else 'Dictation copied')
+                self._show_notice('Original text copied' if original else 'Result copied')
             except Exception:
                 self._show_notice('Could not copy; try again')
 
@@ -1150,7 +1143,7 @@ class TalkyApp:
         if self._controller:
             self._controller.clear()
             self._on_session_status(self._controller.state, self._session_message)
-            self._show_notice('Last dictation cleared')
+            self._show_notice('Last result cleared')
 
     def _restore_session_overlay(self):
         if self._session_state in ('recording', 'transcribing', 'formatting', 'delivering', 'cancelling', 'loading', 'error'):

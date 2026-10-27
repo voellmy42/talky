@@ -36,8 +36,8 @@ class DownloadDialogTests(unittest.TestCase):
         self.app._formatter = self.formatter
         status = object.__new__(StatusBarController)
         status._config = mock.Mock()
-        status._update_formatting_checks = mock.Mock()
-        status.on_formatting_change = self.app._formatting_changed
+        status._ai_enabled_item = mock.Mock()
+        status.on_ai_editing_change = self.app._ai_editing_changed
         self.app.status_bar = status
         self.alert = mock.Mock()
         self.alert.runModal.side_effect = [AppKit.NSAlertFirstButtonReturn,
@@ -48,7 +48,7 @@ class DownloadDialogTests(unittest.TestCase):
         alert_class.alloc.return_value.init.return_value = self.alert
 
     def test_immediate_failure_does_not_reopen_download_dialog(self):
-        self.app._formatting_changed('polished')
+        self.app._ai_editing_changed(True)
         self.assertEqual(self.alert.runModal.call_count, 1)
         self.formatter.install.assert_called_once()
         self.assertEqual(self.formatter.state, 'failed')
