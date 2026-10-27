@@ -1,6 +1,9 @@
 import multiprocessing
 import sys
 import os
+if '--check-ai-model' in sys.argv:
+    os.environ['HF_HUB_OFFLINE'] = '1'
+    os.environ['TRANSFORMERS_OFFLINE'] = '1'
 import fcntl
 import time
 import threading
@@ -24,7 +27,8 @@ for _p in _EXTRA_PATHS:
 os.environ["PATH"] = os.pathsep.join(_path_parts)
 from tools.core_audio import AudioCaptureTool
 from tools.core_stt import STTTool
-from tools.core_llm import LLMFormatter
+from tools.core_mlx_llm import EmbeddedFormatter
+from tools.core_model_store import ModelStore
 from tools.core_output import OutputInjector
 from tools.core_focus import FocusTracker
 from tools.core_session import DictationController
@@ -63,7 +67,7 @@ def main():
     needs_setup = _needs_setup()
 
     stt_tool = STTTool(model_size="small", compute_type="int8")
-    llm_tool = LLMFormatter(host="http://localhost:11434", model="gemma4:latest")
+    llm_tool = EmbeddedFormatter(ModelStore())
     focus_tracker = FocusTracker()
     output_tool = OutputInjector(focus_tracker=focus_tracker)
     stats_store = StatsStore()
@@ -87,6 +91,10 @@ def main():
                                          app_ref._on_session_status)
         app_ref._controller = controller
         app_ref._output = output_tool
+        app_ref._formatter = llm_tool
+        llm_tool.on_state = lambda state, message: _Dispatcher.dispatch_to_main(
+            lambda: app_ref.status_bar.set_ai_status(state, message))
+        llm_tool.on_state(llm_tool.state, llm_tool.message)
 
         on_warmup()
         # Initialize UI stats display on UI start
@@ -94,6 +102,8 @@ def main():
         import numpy as np
         print("--- Warming up models ---", flush=True)
         stt_tool.transcribe(np.zeros(16000, dtype=np.float32), is_warmup=True)
+        if get_formatting_mode() == 'polished':
+            llm_tool.set_enabled(True)
 
         def _on_start():
             chime.play_start()
@@ -198,12 +208,33 @@ def main():
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    if '--check-build' in sys.argv:
+    if '--check-ai-model' in sys.argv:
+        import argparse
+        parser = argparse.ArgumentParser(description='Offline packaged AI inference check; no recording or paste')
+        parser.add_argument('--check-ai-model', action='store_true')
+        parser.add_argument('--model-root', required=True)
+        args = parser.parse_args()
+        formatter = EmbeddedFormatter(ModelStore(root=args.model_root))
+        try:
+            pending = formatter.set_enabled(True)
+            assert pending is not None, 'Install the pinned model first'
+            pending.result()
+            assert formatter.state == 'ready', formatter.message
+            result = formatter.format_session('hello world', mode='polished', budget=10)
+            assert result.reason == 'accepted', result.reason
+            print('Talky offline AI check passed (local model, tokenizer, generation and validation).', flush=True)
+        finally:
+            formatter.close()
+    elif '--check-build' in sys.argv:
         # Exercise bundled native libraries and Metal shaders without opening
         # the microphone, downloading models, reading focus or sending input.
         import mlx.core as mx
+        import mlx_lm
+        import certifi
         from tools.core_paths import resource_path
         assert os.path.isfile(resource_path('talky-logo.jpg'))
+        assert os.path.isfile(resource_path('tools/model_manifests.json'))
+        assert os.path.isfile(certifi.where())
         check = mx.array([1, 2], dtype=mx.float32) + 1
         mx.eval(check)
         assert check.tolist() == [2.0, 3.0]

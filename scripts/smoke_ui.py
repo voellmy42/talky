@@ -42,6 +42,10 @@ def main():
             assert talky.status_bar.get_toggle_shortcut() == choice
             for code, item in talky.status_bar._shortcut_items.items():
                 assert bool(item.state()) == (code == choice)
+        for state in ('not_installed', 'downloading', 'loading', 'ready', 'failed', 'unloaded'):
+            talky.status_bar.set_ai_status(state, state)
+            assert bool(talky.status_bar._ai_install_item.isEnabled()) == (state not in ('downloading', 'loading', 'ready'))
+            assert bool(talky.status_bar._ai_cancel_item.isEnabled()) == (state == 'downloading')
         talky.overlay.update_text('Text ready — Copy Last Dictation')
         render(talky.overlay._window.contentView(), output / 'recovery.png')
         print('Native UI checks passed; previews:', output)

@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
 # Collect MLX and Metal shader resources
 mlx_datas, mlx_binaries, mlx_hiddenimports = collect_all('mlx')
@@ -12,7 +12,10 @@ a = Analysis(
     binaries=mlx_binaries + mlx_metal_binaries + mlx_whisper_binaries,
     datas=[
         ('talky-logo.jpg', '.'),
-    ] + mlx_datas + mlx_metal_datas + mlx_whisper_datas,
+        ('tools/model_manifests.json', 'tools'),
+        ('packaging/AI-MODELS.md', 'licenses'),
+    ] + mlx_datas + mlx_metal_datas + mlx_whisper_datas
+      + copy_metadata('mlx-lm') + copy_metadata('transformers'),
     hiddenimports=[
         # pyobjc frameworks
         'objc',
@@ -39,6 +42,9 @@ a = Analysis(
         'mlx.core',
         'mlx.nn',
         'mlx_whisper',
+        'mlx_lm',
+        'mlx_lm.tokenizer_utils',
+        'transformers.models.qwen2',
         'numpy',
         'scipy',
         # Text injection
@@ -51,6 +57,10 @@ a = Analysis(
         'tools.core_audio',
         'tools.core_stt',
         'tools.core_llm',
+        'tools.core_mlx_llm',
+        'tools.core_model_store',
+        'tools.core_inference',
+        'tools.core_memory',
         'tools.core_output',
         'tools.core_focus',
         'tools.core_session',
@@ -61,6 +71,9 @@ a = Analysis(
         'tools.meeting_mode',
         'tools.meeting_llm',
     ] + mlx_hiddenimports + mlx_metal_hiddenimports + mlx_whisper_hiddenimports
+      + collect_submodules('mlx_lm.models')
+      + collect_submodules('mlx_lm.chat_templates')
+      + collect_submodules('mlx_lm.tool_parsers')
       + collect_submodules('pyobjc_framework_Cocoa')
       + collect_submodules('pyobjc_framework_Quartz')
       + collect_submodules('pyobjc_framework_ApplicationServices')
@@ -109,9 +122,9 @@ app = BUNDLE(
     info_plist={
         'LSUIElement': True,
         'CFBundleDisplayName': 'Talky',
-        'CFBundleShortVersionString': '2.0.2',
-        'CFBundleVersion': '2.0.2',
+        'CFBundleShortVersionString': '2.1.0',
+        'CFBundleVersion': '2.1.0',
+        'LSMinimumSystemVersion': '26.0',
         'NSMicrophoneUsageDescription': 'Talky needs microphone access for speech-to-text dictation.',
-        'NSAppleEventsUsageDescription': 'Talky needs Apple Events access to control Ollama.',
     },
 )

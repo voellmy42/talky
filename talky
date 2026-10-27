@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 # Launcher for Talky — uses the project's venv automatically
 DIR="$(cd "$(dirname "$0")" && pwd)"
-exec "$DIR/.venv/bin/python3" "$DIR/main.py" "$@"
+TALKY_VENV="${TALKY_VENV:-$DIR/.venv-mlx}"
+exec "$TALKY_VENV/bin/python3" "$DIR/main.py" "$@"

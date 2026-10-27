@@ -1,0 +1,96 @@
+{
+  "qwen3-1.7b": {
+    "repo_id": "mlx-community/Qwen3-1.7B-4bit",
+    "revision": "3b1b1768f8f8cf8351c712464f906e86c2b8269e",
+    "license": "Apache-2.0",
+    "files": [
+      {
+        "name": "merges.txt",
+        "size": 1671853,
+        "git_sha1": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+      },
+      {
+        "name": "special_tokens_map.json",
+        "size": 613,
+        "git_sha1": "ac23c0aaa2434523c494330aeb79c58395378103"
+      },
+      {
+        "name": "tokenizer_config.json",
+        "size": 9706,
+        "git_sha1": "7345216a0785dc7086e8c245b2a9d3896ce2b756"
+      },
+      {
+        "name": "vocab.json",
+        "size": 2776833,
+        "git_sha1": "4783fe10ac3adce15ac8f358ef5462739852c569"
+      },
+      {
+        "name": "config.json",
+        "size": 937,
+        "git_sha1": "0a78ffc3980b062021a450199988d0ed8537239d"
+      },
+      {
+        "name": "model.safetensors.index.json",
+        "size": 49731,
+        "git_sha1": "8607d041b6549c15a4db85e7b4c5cf30d3ab890a"
+      },
+      {
+        "name": "tokenizer.json",
+        "size": 11422654,
+        "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+      },
+      {
+        "name": "model.safetensors",
+        "size": 968080210,
+        "sha256": "0e86d9677e519323849eac1bc272caae88567a481ff188c431f70be543d9995f"
+      }
+    ]
+  },
+  "qwen3-4b": {
+    "repo_id": "mlx-community/Qwen3-4B-4bit",
+    "revision": "4dcb3d101c2a062e5c1d4bb173588c54ea6c4d25",
+    "license": "Apache-2.0",
+    "files": [
+      {
+        "name": "merges.txt",
+        "size": 1671853,
+        "git_sha1": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+      },
+      {
+        "name": "special_tokens_map.json",
+        "size": 613,
+        "git_sha1": "ac23c0aaa2434523c494330aeb79c58395378103"
+      },
+      {
+        "name": "tokenizer_config.json",
+        "size": 9706,
+        "git_sha1": "7345216a0785dc7086e8c245b2a9d3896ce2b756"
+      },
+      {
+        "name": "vocab.json",
+        "size": 2776833,
+        "git_sha1": "4783fe10ac3adce15ac8f358ef5462739852c569"
+      },
+      {
+        "name": "config.json",
+        "size": 937,
+        "git_sha1": "032ad326a0daaaeeec00f2a585262acf5f692861"
+      },
+      {
+        "name": "model.safetensors.index.json",
+        "size": 63924,
+        "git_sha1": "07e230a328dd17a09d96ee045d49b27596656aff"
+      },
+      {
+        "name": "tokenizer.json",
+        "size": 11422654,
+        "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+      },
+      {
+        "name": "model.safetensors",
+        "size": 2263022529,
+        "sha256": "e240c0bdc0ebb0681bf0da0f98d9719fd6ebe269a3633f81542c13e81345651d"
+      }
+    ]
+  }
+}

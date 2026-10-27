@@ -1,5 +1,6 @@
 import mlx_whisper
 import numpy as np
+from tools.core_inference import GPU_LOCK
 
 # Language-matched initial prompts prevent hallucination when the prompt
 # language doesn't match the transcription language.
@@ -35,15 +36,16 @@ class STTTool:
                 return ""
             print(f"[core_stt] Transcribing audio buffer (lang={language}) via MLX GPU...", flush=True)
 
-        result = mlx_whisper.transcribe(
-            audio_buffer,
-            path_or_hf_repo=self.hf_repo,
-            language=language,
-            initial_prompt=_INITIAL_PROMPTS.get(language),
-            condition_on_previous_text=False,
-            temperature=0.0,
-            hallucination_silence_threshold=2.0,
-        )
+        with GPU_LOCK:
+            result = mlx_whisper.transcribe(
+                audio_buffer,
+                path_or_hf_repo=self.hf_repo,
+                language=language,
+                initial_prompt=_INITIAL_PROMPTS.get(language),
+                condition_on_previous_text=False,
+                temperature=0.0,
+                hallucination_silence_threshold=2.0,
+            )
 
         transcription = result.get("text", "")
         if not is_warmup:

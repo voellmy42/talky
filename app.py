@@ -258,6 +258,18 @@ class _MenuTarget(AppKit.NSObject):
     _clear_fn = None
     _toggle_fn = None
     _shortcut_fn = None
+    _ai_install_fn = None
+    _ai_cancel_fn = None
+
+    @objc.typedSelector(b"v@:@")
+    def installAI_(self, sender):
+        if self._ai_install_fn:
+            self._ai_install_fn()
+
+    @objc.typedSelector(b"v@:@")
+    def cancelAI_(self, sender):
+        if self._ai_cancel_fn:
+            self._ai_cancel_fn()
 
     @objc.typedSelector(b"v@:@")
     def selectShortcut_(self, sender):
@@ -320,7 +332,7 @@ class StatusBarController:
 
     FORMATTING_MODES = [
         ("fast", "Fast (instant)"),
-        ("polished", "Polished (AI)"),
+        ("polished", "Polished (local AI preview)"),
     ]
 
     def __init__(self, on_quit, config=None):
@@ -330,6 +342,7 @@ class StatusBarController:
         self._formatting_mode = self._config.get_formatting_mode()
         self._toggle_shortcut = self._config.get_toggle_shortcut()
         self._session_message = None
+        self.on_formatting_change = None
         self._menu_target = _MenuTarget.alloc().init()
         self._menu_target._quit_fn = on_quit
         self._menu_target._lang_fn = self._set_language
@@ -500,6 +513,20 @@ class StatusBarController:
 
         self._update_formatting_checks()
 
+        self._ai_status_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            'AI: Not loaded (Fast needs no AI model)', None, '')
+        self._ai_status_item.setEnabled_(False)
+        menu.addItem_(self._ai_status_item)
+        self._ai_install_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            'Download / Load AI Model…', 'installAI:', '')
+        self._ai_install_item.setTarget_(self._menu_target)
+        menu.addItem_(self._ai_install_item)
+        self._ai_cancel_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            'Cancel AI Download', 'cancelAI:', '')
+        self._ai_cancel_item.setTarget_(self._menu_target)
+        self._ai_cancel_item.setEnabled_(False)
+        menu.addItem_(self._ai_cancel_item)
+
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
         quit_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -540,6 +567,13 @@ class StatusBarController:
         self._config.set_formatting_mode(mode)
         self._update_formatting_checks()
         print(f"[app] Formatting mode set to: {mode}", flush=True)
+        if self.on_formatting_change:
+            self.on_formatting_change(mode)
+
+    def set_ai_status(self, state, message):
+        self._ai_status_item.setTitle_('AI: ' + message)
+        self._ai_install_item.setEnabled_(state not in ('downloading', 'loading', 'ready'))
+        self._ai_cancel_item.setEnabled_(state == 'downloading')
 
     def get_formatting_mode(self):
         return self._formatting_mode
@@ -987,6 +1021,10 @@ class TalkyApp:
         self._controller = None
         self._audio = None
         self._output = None
+        self._formatter = None
+        self.status_bar.on_formatting_change = self._formatting_changed
+        self.status_bar._menu_target._ai_install_fn = self._install_ai
+        self.status_bar._menu_target._ai_cancel_fn = self._cancel_ai_download
         self._notice_timer = None
         self._session_state = 'loading'
         self._session_message = 'Loading speech model…'
@@ -1047,6 +1085,36 @@ class TalkyApp:
             if self._audio:
                 self._audio.close()
             self._on_session_status('error', 'Speech engine unavailable; restart Talky')
+
+    def _formatting_changed(self, mode):
+        if self._formatter:
+            self._formatter.set_enabled(mode == 'polished')
+            if mode == 'polished' and self._formatter.state == 'not_installed':
+                self._install_ai()
+
+    def _install_ai(self):
+        if not self._formatter:
+            self._show_notice('Wait for the speech engine to start')
+            return
+        if self._formatter.store.installed() and self._formatter.state != 'failed':
+            self.status_bar._set_formatting_mode('polished')
+            return
+        size = self._formatter.store.download_bytes / 1_000_000_000
+        alert = AppKit.NSAlert.alloc().init()
+        alert.setMessageText_('Download local AI model?')
+        alert.setInformativeText_(
+            f'Polished mode downloads approximately {size:.2f} GB from Hugging Face. '
+            'After installation, formatting runs on this Mac without Ollama. '
+            'Fast dictation stays available during the download. This is a preview.')
+        alert.addButtonWithTitle_('Download')
+        alert.addButtonWithTitle_('Later')
+        if alert.runModal() == AppKit.NSAlertFirstButtonReturn:
+            self._formatter.install()
+            self.status_bar._set_formatting_mode('polished')
+
+    def _cancel_ai_download(self):
+        if self._formatter:
+            self._formatter.cancel_download()
 
     def _cancel_dictation(self):
         if self._audio:
@@ -1172,6 +1240,8 @@ class TalkyApp:
             self._controller.close()
         if self._audio:
             self._audio.close()
+        if self._formatter:
+            self._formatter.close()
         if self._on_cleanup:
             self._on_cleanup()
         self._app.terminate_(None)
