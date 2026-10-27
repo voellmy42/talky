@@ -47,7 +47,6 @@ class STTTool:
 
         transcription = result.get("text", "")
         if not is_warmup:
-            print(f"[core_stt] Raw output: '{transcription}'")
             return transcription.strip()
         else:
             print("[core_stt] MLX GPU compilation complete.", flush=True)

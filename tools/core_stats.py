@@ -9,7 +9,9 @@ class StatsStore:
             "total_dictations": 0,
             "total_words": 0,
             "total_recording_time_seconds": 0.0,
-            "total_time_saved_seconds": 0.0
+            "total_time_saved_seconds": 0.0,
+            "total_processing_time_seconds": 0.0,
+            "last_processing_time_seconds": 0.0,
         }
         self.load()
 
@@ -29,10 +31,12 @@ class StatsStore:
         except Exception as e:
             print(f"[core_stats] Error saving stats: {e}")
 
-    def add_dictation(self, duration_seconds: float, words_count: int):
+    def add_dictation(self, duration_seconds: float, words_count: int, processing_seconds: float = 0.0):
         self.stats["total_dictations"] += 1
         self.stats["total_words"] += words_count
         self.stats["total_recording_time_seconds"] += duration_seconds
+        self.stats["total_processing_time_seconds"] += processing_seconds
+        self.stats["last_processing_time_seconds"] = processing_seconds
 
         # Assume 40 WPM average typing speed -> 1.5 seconds per word
         typing_time_seconds = words_count * 1.5
@@ -65,8 +69,17 @@ class StatsStore:
         else:
             speed_wpm = 0
 
+        dictations = self.stats["total_dictations"]
+        last_latency = self.stats["last_processing_time_seconds"]
+        average_latency = (
+            self.stats["total_processing_time_seconds"] / dictations
+            if dictations else 0.0
+        )
+
         return {
-            "dictations": str(self.stats["total_dictations"]),
+            "dictations": str(dictations),
             "time_saved": time_saved_str,
-            "speed_wpm": str(speed_wpm)
+            "speed_wpm": str(speed_wpm),
+            "last_latency": f"{last_latency:.2f}s",
+            "average_latency": f"{average_latency:.2f}s",
         }

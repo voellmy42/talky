@@ -52,6 +52,8 @@ a = Analysis(
         'tools.core_stt',
         'tools.core_llm',
         'tools.core_output',
+        'tools.core_focus',
+        'tools.core_session',
         'tools.core_audio_feedback',
         'tools.core_stats',
         'tools.core_config',
@@ -107,7 +109,8 @@ app = BUNDLE(
     info_plist={
         'LSUIElement': True,
         'CFBundleDisplayName': 'Talky',
-        'CFBundleShortVersionString': '1.0.0',
+        'CFBundleShortVersionString': '2.0.2',
+        'CFBundleVersion': '2.0.2',
         'NSMicrophoneUsageDescription': 'Talky needs microphone access for speech-to-text dictation.',
         'NSAppleEventsUsageDescription': 'Talky needs Apple Events access to control Ollama.',
     },

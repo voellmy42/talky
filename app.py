@@ -4,6 +4,7 @@ import ApplicationServices
 import subprocess
 import threading
 import Quartz
+import AVFoundation
 
 from tools.core_config import ConfigManager
 
@@ -82,11 +83,13 @@ class OverlayWindow:
     """Modern floating pill showing recording, warming up, or meeting state."""
 
     def __init__(self):
-        width, height = 220, 48
+        width, height = 360, 48
         screen = AppKit.NSScreen.mainScreen().frame()
-        # Position centered at the bottom, but above the dock area
+        # Position on the visible screen, above the Dock.
+        screen = AppKit.NSScreen.mainScreen().visibleFrame()
         x = (screen.size.width - width) / 2
-        y = screen.size.height - 100
+        x += screen.origin.x
+        y = screen.origin.y + 32
 
         self._window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             AppKit.NSMakeRect(x, y, width, height),
@@ -139,8 +142,12 @@ class OverlayWindow:
         content.addSubview_(self._label)
 
         self._meeting_timer = None
+        self._hide_timer = None
 
     def show(self, text="Listening..."):
+        if self._hide_timer is not None:
+            self._hide_timer.invalidate()
+            self._hide_timer = None
         self.update_text(text)
         self._window.setAlphaValue_(0.0)
         self._window.orderFrontRegardless()
@@ -180,6 +187,9 @@ class OverlayWindow:
             self._indicator.layer().setOpacity_(1.0)
 
     def hide(self):
+        if self._hide_timer is not None:
+            self._hide_timer.invalidate()
+            self._hide_timer = None
         self._indicator.layer().removeAnimationForKey_("pulse")
         # Smooth fade-out before hiding
         AppKit.NSAnimationContext.beginGrouping()
@@ -190,7 +200,8 @@ class OverlayWindow:
         # Schedule the actual window removal after animation
         def _hide_final(timer):
             self._window.orderOut_(None)
-        AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+            self._hide_timer = None
+        self._hide_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
             0.2, False, _hide_final
         )
 
@@ -239,7 +250,44 @@ class _MenuTarget(AppKit.NSObject):
 
     _quit_fn = None
     _lang_fn = None
+    _formatting_fn = None
     _meeting_fn = None
+    _cancel_fn = None
+    _copy_fn = None
+    _copy_raw_fn = None
+    _clear_fn = None
+    _toggle_fn = None
+    _shortcut_fn = None
+
+    @objc.typedSelector(b"v@:@")
+    def selectShortcut_(self, sender):
+        if self._shortcut_fn:
+            self._shortcut_fn(sender.representedObject())
+
+    @objc.typedSelector(b"v@:@")
+    def toggleDictation_(self, sender):
+        if self._toggle_fn:
+            self._toggle_fn()
+
+    @objc.typedSelector(b"v@:@")
+    def cancelDictation_(self, sender):
+        if self._cancel_fn:
+            self._cancel_fn()
+
+    @objc.typedSelector(b"v@:@")
+    def copyDictation_(self, sender):
+        if self._copy_fn:
+            self._copy_fn()
+
+    @objc.typedSelector(b"v@:@")
+    def copyOriginal_(self, sender):
+        if self._copy_raw_fn:
+            self._copy_raw_fn()
+
+    @objc.typedSelector(b"v@:@")
+    def clearDictation_(self, sender):
+        if self._clear_fn:
+            self._clear_fn()
 
     @objc.typedSelector(b"v@:@")
     def quitApp_(self, sender):
@@ -250,6 +298,11 @@ class _MenuTarget(AppKit.NSObject):
     def selectLang_(self, sender):
         if self._lang_fn:
             self._lang_fn(sender.representedObject())
+
+    @objc.typedSelector(b"v@:@")
+    def selectFormatting_(self, sender):
+        if self._formatting_fn:
+            self._formatting_fn(sender.representedObject())
 
     @objc.typedSelector(b"v@:@")
     def toggleMeeting_(self, sender):
@@ -265,12 +318,23 @@ class StatusBarController:
         ("en", "English"),
     ]
 
-    def __init__(self, on_quit):
+    FORMATTING_MODES = [
+        ("fast", "Fast (instant)"),
+        ("polished", "Polished (AI)"),
+    ]
+
+    def __init__(self, on_quit, config=None):
         self._on_quit = on_quit
-        self._language = "en"  # default
+        self._config = config or ConfigManager()
+        self._language = self._config.get_language()
+        self._formatting_mode = self._config.get_formatting_mode()
+        self._toggle_shortcut = self._config.get_toggle_shortcut()
+        self._session_message = None
         self._menu_target = _MenuTarget.alloc().init()
         self._menu_target._quit_fn = on_quit
         self._menu_target._lang_fn = self._set_language
+        self._menu_target._formatting_fn = self._set_formatting_mode
+        self._menu_target._shortcut_fn = self._set_toggle_shortcut
 
         self._status_item = AppKit.NSStatusBar.systemStatusBar().statusItemWithLength_(
             AppKit.NSVariableStatusItemLength
@@ -319,6 +383,39 @@ class StatusBarController:
         self._status_menu_item.setEnabled_(False)
         menu.addItem_(self._status_menu_item)
 
+        self._dictation_items = {}
+        for title, action in (
+            ('Start / Finish Dictation', 'toggleDictation:'),
+            ('Cancel Dictation (Esc)', 'cancelDictation:'),
+            ('Copy Last Dictation', 'copyDictation:'),
+            ('Copy Original Transcript', 'copyOriginal:'),
+            ('Clear Last Dictation', 'clearDictation:'),
+        ):
+            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, '')
+            item.setTarget_(self._menu_target)
+            item.setEnabled_(False)
+            self._dictation_items[action] = item
+            menu.addItem_(item)
+        menu.setAutoenablesItems_(False)
+
+        self._shortcut_items = {}
+        for code, title in (
+            ('section', '§ — Start / Finish'),
+            ('ctrl_shift_space', '⌃⇧Space — Start / Finish'),
+            ('off', 'Fn only'),
+        ):
+            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, 'selectShortcut:', '')
+            item.setTarget_(self._menu_target)
+            item.setRepresentedObject_(code)
+            self._shortcut_items[code] = item
+        shortcut_menu = AppKit.NSMenu.alloc().init()
+        for item in self._shortcut_items.values():
+            shortcut_menu.addItem_(item)
+        shortcut_parent = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_('Dictation Shortcut', None, '')
+        shortcut_parent.setSubmenu_(shortcut_menu)
+        menu.addItem_(shortcut_parent)
+        self._update_shortcut_checks()
+
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
         # ---- Stats Dashboard ----
@@ -345,6 +442,12 @@ class StatusBarController:
         )
         self._stat_speed.setEnabled_(False)
         menu.addItem_(self._stat_speed)
+
+        self._stat_latency = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "  Last response: --", None, ""
+        )
+        self._stat_latency.setEnabled_(False)
+        menu.addItem_(self._stat_latency)
 
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
@@ -378,6 +481,27 @@ class StatusBarController:
 
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
+        # ---- Formatting mode ----
+        formatting_header = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Formatting", None, ""
+        )
+        formatting_header.setEnabled_(False)
+        menu.addItem_(formatting_header)
+
+        self._formatting_items = {}
+        for code, label in self.FORMATTING_MODES:
+            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                f"  {label}", "selectFormatting:", ""
+            )
+            item.setTarget_(self._menu_target)
+            item.setRepresentedObject_(code)
+            self._formatting_items[code] = item
+            menu.addItem_(item)
+
+        self._update_formatting_checks()
+
+        menu.addItem_(AppKit.NSMenuItem.separatorItem())
+
         quit_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Quit Talky", "quitApp:", "q"
         )
@@ -395,19 +519,63 @@ class StatusBarController:
 
     def _set_language(self, code):
         self._language = code
+        self._config.set_language(code)
         self._update_lang_checks()
         print(f"[app] Language set to: {code}", flush=True)
 
     def get_language(self):
         return self._language
 
+    def _update_formatting_checks(self):
+        for code, item in self._formatting_items.items():
+            state = (
+                AppKit.NSControlStateValueOn
+                if code == self._formatting_mode
+                else AppKit.NSControlStateValueOff
+            )
+            item.setState_(state)
+
+    def _set_formatting_mode(self, mode):
+        self._formatting_mode = mode
+        self._config.set_formatting_mode(mode)
+        self._update_formatting_checks()
+        print(f"[app] Formatting mode set to: {mode}", flush=True)
+
+    def get_formatting_mode(self):
+        return self._formatting_mode
+
+    def get_toggle_shortcut(self):
+        return self._toggle_shortcut
+
+    def _update_shortcut_checks(self):
+        for code, item in self._shortcut_items.items():
+            item.setState_(AppKit.NSControlStateValueOn if code == self._toggle_shortcut else AppKit.NSControlStateValueOff)
+
+    def _set_toggle_shortcut(self, shortcut):
+        self._config.set_toggle_shortcut(shortcut)
+        self._toggle_shortcut = shortcut
+        self._update_shortcut_checks()
+
     def update_stats(self, stats: dict):
         self._stat_time_saved.setTitle_(f"  ⚡️ Time Saved: {stats.get('time_saved', '0s')}")
         self._stat_dictations.setTitle_(f"  🎤 Dictations: {stats.get('dictations', '0')}")
         self._stat_speed.setTitle_(f"  🚀 Speed: {stats.get('speed_wpm', '0')} WPM")
+        self._stat_latency.setTitle_(
+            f"  Last response: {stats.get('last_latency', '--')}"
+        )
 
     def set_recording(self, is_recording):
         self._is_recording = is_recording
+        self._update_display()
+
+    def set_session_status(self, state, message, has_result):
+        self._session_message = message
+        self._is_recording = state == 'recording'
+        self._dictation_items['toggleDictation:'].setEnabled_(state in ('ready', 'recording'))
+        self._dictation_items['cancelDictation:'].setEnabled_(state in ('recording', 'transcribing', 'formatting'))
+        for action in ('copyDictation:', 'copyOriginal:', 'clearDictation:'):
+            self._dictation_items[action].setEnabled_(has_result)
+        self._meeting_menu_item.setEnabled_(state == 'ready')
         self._update_display()
 
     def set_meeting_active(self, active):
@@ -442,6 +610,8 @@ class StatusBarController:
             button.setImage_(self._icon_idle)
             self._status_menu_item.setTitle_("Status: Ready")
             self._meeting_menu_item.setTitle_("Start Meeting")
+        if self._session_message and not self._meeting_active and not self._setup_required:
+            self._status_menu_item.setTitle_(f'Status: {self._session_message}')
 
 
 # ---------------------------------------------------------------------------
@@ -480,16 +650,12 @@ class _SetupTarget(AppKit.NSObject):
 class SetupWizard:
     """Two-page onboarding wizard: welcome screen then setup checklist."""
 
-    MODEL_NAME = "gemma4:latest"
-
     def __init__(self, on_complete):
         """
         on_complete — callable invoked (on main thread) when the user
         clicks 'Complete Setup' and all checks pass.
         """
         self._on_complete = on_complete
-        self._installing_model = False
-        self._ollama_started = False
 
         width, height = 480, 400
         screen = AppKit.NSScreen.mainScreen().frame()
@@ -507,7 +673,7 @@ class SetupWizard:
 
         self._target = _SetupTarget.alloc().init()
         self._target._get_started_fn = self._go_to_checklist
-        self._target._install_model_fn = self._install_model
+        self._target._install_model_fn = self._request_microphone
         self._target._open_accessibility_fn = self._open_accessibility
         self._target._complete_fn = self._complete
 
@@ -584,7 +750,7 @@ class SetupWizard:
         content.addSubview_(title)
 
         subtitle = AppKit.NSTextField.labelWithString_(
-            "Talky needs a few things before it can run."
+            "Allow microphone and Accessibility access. No Ollama needed."
         )
         subtitle.setFrame_(AppKit.NSMakeRect(20, height - 75, width - 40, 20))
         subtitle.setFont_(AppKit.NSFont.systemFontOfSize_(13))
@@ -608,7 +774,7 @@ class SetupWizard:
         self._ollama_icon.setHidden_(True)
         content.addSubview_(self._ollama_icon)
 
-        self._ollama_label = AppKit.NSTextField.labelWithString_("Checking Ollama...")
+        self._ollama_label = AppKit.NSTextField.labelWithString_("Checking microphone permission…")
         self._ollama_label.setFrame_(AppKit.NSMakeRect(48, row1_y, 260, 20))
         self._ollama_label.setFont_(AppKit.NSFont.systemFontOfSize_(13))
         self._ollama_label.setTextColor_(AppKit.NSColor.secondaryLabelColor())
@@ -618,7 +784,7 @@ class SetupWizard:
             AppKit.NSMakeRect(340, row1_y - 2, 120, 24)
         )
         self._ollama_button.setBezelStyle_(AppKit.NSBezelStyleRounded)
-        self._ollama_button.setTitle_("Install Model")
+        self._ollama_button.setTitle_("Allow Microphone")
         self._ollama_button.setTarget_(self._target)
         self._ollama_button.setAction_("installModel:")
         self._ollama_button.setHidden_(True)
@@ -672,9 +838,6 @@ class SetupWizard:
 
         self._checking = False
 
-        # Try to start Ollama automatically if installed but not running
-        self._ensure_ollama_running()
-
         # Run first check in background, then start periodic timer
         self._run_checks_async()
         self._timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
@@ -685,56 +848,11 @@ class SetupWizard:
         """Transition from welcome page to checklist page."""
         self._build_checklist_page()
 
-    # ---- Ollama startup ----
-
-    def _ensure_ollama_running(self):
-        """Start Ollama if installed but not running (mirrors main.py logic)."""
-        import os
-        import shutil
-        try:
-            result = subprocess.run(["pgrep", "-x", "ollama"], capture_output=True)
-            if result.returncode == 0:
-                self._ollama_started = True
-                return  # Already running
-
-            if os.path.isdir("/Applications/Ollama.app"):
-                subprocess.Popen(
-                    ["open", "-g", "-j", "-a", "Ollama"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                self._ollama_started = True
-                print("[setup] Started Ollama.app", flush=True)
-            elif shutil.which("ollama"):
-                subprocess.Popen(
-                    ["ollama", "serve"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                self._ollama_started = True
-                print("[setup] Started ollama serve", flush=True)
-        except Exception as e:
-            print(f"[setup] Could not start Ollama: {e}", flush=True)
-
-    # ---- Checks ----
-
-    def _check_ollama(self) -> bool:
-        """Returns True if Ollama is running AND the model is available."""
-        try:
-            result = subprocess.run(
-                ["pgrep", "-x", "ollama"], capture_output=True
-            )
-            if result.returncode != 0:
-                return False
-            result = subprocess.run(
-                ["ollama", "list"], capture_output=True, text=True, timeout=5
-            )
-            return self.MODEL_NAME in result.stdout
-        except Exception:
-            return False
+    # ---- Permission checks ----
 
     def _check_accessibility(self) -> bool:
-        return ApplicationServices.AXIsProcessTrusted()
+        return ApplicationServices.AXIsProcessTrustedWithOptions(
+            {ApplicationServices.kAXTrustedCheckOptionPrompt: False})
 
     def _run_checks_async(self):
         """Run dependency checks in a background thread to avoid blocking UI."""
@@ -743,31 +861,21 @@ class SetupWizard:
         self._checking = True
 
         def _do_checks():
-            ollama_ok = self._check_ollama()
+            microphone_ok = AVFoundation.AVCaptureDevice.authorizationStatusForMediaType_(AVFoundation.AVMediaTypeAudio) == AVFoundation.AVAuthorizationStatusAuthorized
             ax_ok = self._check_accessibility()
 
             def _update_ui():
                 self._checking = False
-
-                # Update Ollama row
-                if self._installing_model:
-                    fail_text = "Installing model..."
-                elif not self._ollama_started:
-                    fail_text = "Ollama not found"
-                else:
-                    fail_text = "Model not installed"
 
                 self._set_row_status(
                     self._ollama_spinner,
                     self._ollama_icon,
                     self._ollama_label,
                     self._ollama_button,
-                    ok=ollama_ok,
-                    ok_text="Ollama running, model installed",
-                    fail_text=fail_text,
+                    ok=microphone_ok,
+                    ok_text="Microphone permission granted",
+                    fail_text="Microphone permission required",
                 )
-                if self._installing_model:
-                    self._ollama_button.setHidden_(True)
 
                 # Update Accessibility row
                 self._set_row_status(
@@ -780,7 +888,7 @@ class SetupWizard:
                     fail_text="Accessibility permission required",
                 )
 
-                self._complete_button.setEnabled_(ollama_ok and ax_ok)
+                self._complete_button.setEnabled_(microphone_ok and ax_ok)
 
             _Dispatcher.dispatch_to_main(_update_ui)
 
@@ -811,27 +919,18 @@ class SetupWizard:
 
     # ---- Actions ----
 
-    def _install_model(self):
-        """Run 'ollama pull gemma4:latest' in a background thread."""
-        self._installing_model = True
-        self._ollama_button.setHidden_(True)
-        self._ollama_label.setStringValue_("Installing model...")
-        self._ollama_label.setTextColor_(AppKit.NSColor.secondaryLabelColor())
-
-        def _pull():
-            try:
-                subprocess.run(
-                    ["ollama", "pull", self.MODEL_NAME],
-                    timeout=600,
-                )
-            except Exception as e:
-                print(f"[setup] Model install failed: {e}", flush=True)
-            self._installing_model = False
-
-        threading.Thread(target=_pull, daemon=True).start()
+    def _request_microphone(self):
+        status = AVFoundation.AVCaptureDevice.authorizationStatusForMediaType_(AVFoundation.AVMediaTypeAudio)
+        if status == AVFoundation.AVAuthorizationStatusNotDetermined:
+            AVFoundation.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+                AVFoundation.AVMediaTypeAudio, lambda granted: None)
+        else:
+            subprocess.Popen(['open', 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'])
 
     def _open_accessibility(self):
         """Open macOS Accessibility preferences pane."""
+        ApplicationServices.AXIsProcessTrustedWithOptions(
+            {ApplicationServices.kAXTrustedCheckOptionPrompt: True})
         subprocess.Popen([
             "open",
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
@@ -867,7 +966,8 @@ class TalkyApp:
     """
     Manages the NSApplication lifecycle.
 
-    pipeline_fn(on_record_start, on_record_stop, on_processing, on_idle, get_language)
+    pipeline_fn(on_record_start, on_record_stop, on_processing, on_idle,
+                get_language, get_formatting_mode)
         — a callable that runs the dictation loop in a background thread.
         The four callbacks update the UI (dispatched to main thread automatically).
         get_language returns the currently selected language code.
@@ -882,8 +982,19 @@ class TalkyApp:
         self._app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
 
         self.overlay = OverlayWindow()
-        self.status_bar = StatusBarController(on_quit=self._quit)
+        self.status_bar = StatusBarController(on_quit=self._quit, config=self._config)
         self._wizard = None
+        self._controller = None
+        self._audio = None
+        self._output = None
+        self._notice_timer = None
+        self._session_state = 'loading'
+        self._session_message = 'Loading speech model…'
+        self.status_bar._menu_target._cancel_fn = self._cancel_dictation
+        self.status_bar._menu_target._copy_fn = lambda: self._copy_dictation(False)
+        self.status_bar._menu_target._copy_raw_fn = lambda: self._copy_dictation(True)
+        self.status_bar._menu_target._clear_fn = self._clear_dictation
+        self.status_bar._menu_target._toggle_fn = self._toggle_dictation
 
         # Meeting mode callbacks — set by pipeline after init
         self._on_meeting_start = None
@@ -912,7 +1023,7 @@ class TalkyApp:
 
     def _start_pipeline(self):
         t = threading.Thread(
-            target=self._pipeline_fn,
+            target=self._run_pipeline,
             args=(
                 self._on_record_start,
                 self._on_record_stop,
@@ -921,12 +1032,80 @@ class TalkyApp:
                 self._on_warmup,
                 self._on_ready,
                 self.status_bar.get_language,
+                self.status_bar.get_formatting_mode,
                 self._on_stats_update,
                 self,  # app_ref for meeting mode wiring
             ),
             daemon=True,
         )
         t.start()
+
+    def _run_pipeline(self, *args):
+        try:
+            self._pipeline_fn(*args)
+        except Exception:
+            if self._audio:
+                self._audio.close()
+            self._on_session_status('error', 'Speech engine unavailable; restart Talky')
+
+    def _cancel_dictation(self):
+        if self._audio:
+            self._audio.cancel()
+
+    def _toggle_dictation(self):
+        if self._audio:
+            # Let the menu close before capturing the destination field.
+            timer = threading.Timer(0.25, self._audio.toggle)
+            timer.daemon = True
+            timer.start()
+
+    def _copy_dictation(self, original):
+        result = self._controller.last_result if self._controller else None
+        if result and self._output:
+            try:
+                self._output.copy(result.raw if original else result.text)
+                self._show_notice('Original copied' if original else 'Dictation copied')
+            except Exception:
+                self._show_notice('Could not copy; try again')
+
+    def _clear_dictation(self):
+        if self._controller:
+            self._controller.clear()
+            self._on_session_status(self._controller.state, self._session_message)
+            self._show_notice('Last dictation cleared')
+
+    def _restore_session_overlay(self):
+        if self._session_state in ('recording', 'transcribing', 'formatting', 'delivering', 'cancelling', 'loading', 'error'):
+            self.overlay.show(self._session_message)
+        else:
+            self.overlay.hide()
+
+    def _show_notice(self, message):
+        def show():
+            if self._notice_timer:
+                self._notice_timer.invalidate()
+            self.overlay.show(message)
+            self._notice_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+                3.0, False, lambda timer: self._restore_session_overlay())
+        _Dispatcher.dispatch_to_main(show)
+
+    def _on_session_status(self, state, message):
+        # Capture availability with the event, rather than reading a later
+        # controller state when the main-thread callback eventually runs.
+        has_result = bool(self._controller and self._controller.last_result)
+        def update():
+            self._session_state, self._session_message = state, message
+            if self._notice_timer:
+                self._notice_timer.invalidate()
+                self._notice_timer = None
+            self.status_bar.set_session_status(state, message, has_result)
+            if state == 'ready':
+                self.overlay.show(message)
+                self._notice_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+                    3.0, False, lambda timer: self.overlay.hide())
+            else:
+                self.overlay.show(message)
+        _Dispatcher.dispatch_to_main(update)
 
     # -- callbacks (safe to call from any thread) --
 
@@ -936,8 +1115,8 @@ class TalkyApp:
     def _on_record_stop(self):
         _Dispatcher.dispatch_to_main(self._main_record_stop)
 
-    def _on_processing(self):
-        _Dispatcher.dispatch_to_main(self._main_processing)
+    def _on_processing(self, text="Transcribing..."):
+        _Dispatcher.dispatch_to_main(lambda: self._main_processing(text))
 
     def _on_idle(self):
         _Dispatcher.dispatch_to_main(self._main_idle)
@@ -962,17 +1141,21 @@ class TalkyApp:
 
     def _main_record_stop(self):
         self.status_bar.set_recording(False)
-        self.overlay.update_text("Processing...")
+        self.overlay.update_text("Transcribing...")
 
-    def _main_processing(self):
-        self.overlay.update_text("Processing...")
+    def _main_processing(self, text="Transcribing..."):
+        self.overlay.update_text(text)
 
     def _main_idle(self):
+        self._session_state, self._session_message = 'ready', 'Ready'
         self.status_bar.set_recording(False)
+        self.status_bar.set_session_status('ready', 'Ready', bool(self._controller and self._controller.last_result))
         self.overlay.hide()
 
     def _main_warmup(self):
+        self._session_state, self._session_message = 'loading', 'Loading speech model…'
         self.status_bar.set_recording(False)
+        self.status_bar.set_session_status('loading', 'Loading speech model…', False)
         self.overlay.show("Warming up models...")
 
     def _toggle_meeting(self):
@@ -985,6 +1168,10 @@ class TalkyApp:
                 self._on_meeting_start()
 
     def _quit(self):
+        if self._controller:
+            self._controller.close()
+        if self._audio:
+            self._audio.close()
         if self._on_cleanup:
             self._on_cleanup()
         self._app.terminate_(None)

@@ -4,20 +4,20 @@
 
 ### Input
 - `audio_buffer`: In-memory audio stream captured on hotkey press (stateless).
-- `local_config` (Optional - JSON/YAML): User preferences (custom dictionaries, language selection).
+- `local_config` (Optional - JSON): User preferences (language and formatting mode).
 
 ### Intermediate
 - `raw_transcription` (String): Output text from local Whisper / faster-whisper STT.
 
 ### Output (Delivery Payload)
-- `cleaned_text` (String): Text cleaned by local LLM (Ollama), injected directly into active cursor position or copied to OS clipboard as fallback.
+- `cleaned_text` (String): Text cleaned deterministically in Fast mode or by local Ollama in Polished mode, then injected at the active cursor.
 
 ## 2. Behavioral Rules
 - **Speed over perfection:** Sub-2s latency from release of hotkey to text appearing.
 - **Silent removal:** Remove filler words (um, uh, you know).
 - **Format only:** Fix grammar & punctuation without changing meaning or tone. Do NOT rephrase, summarize, or shorten.
 - **Privacy absolute:** Do NOT send any audio or text outside the local machine.
-- **Stateless execution:** Do NOT store recordings — buffer is wiped after each use.
+- **Ephemeral execution:** Do NOT store dictation recordings. Keep only the latest raw/final transcript in memory for explicit recovery; clear it on cancellation, Clear Last Dictation or quit. Meeting notes remain an intentional saved output.
 - **Language:** Default German/English (Swiss context), configurable.
 
 ## 3. Architectural Invariants
@@ -28,4 +28,6 @@
 - **Core Dependencies:** Ollama (LLM) and Whisper/faster-whisper (STT). No external API keys. No cloud dependency.
 
 ## 4. Maintenance Log
-*(To be updated during Trigger phase)*
+- **Talky 2**: Added Fast/Polished formatting modes, persistent 500 ms audio pre-roll, native Quartz paste, clipboard race protection, and per-stage latency measurement.
+- **2.0.1 preview**: Replaced idle pre-roll with on-demand microphone capture. Moved controls off the event-tap callback, aligned shortcut authorization with Accessibility, and added F8/menu start/finish.
+- **2.0.2 preview**: Replaced F8 with configurable §/Control+Shift+Space toggles, persisted in settings and changeable from the menu without rebuilding. Consume only shortcut keydown/up/repeats to avoid stray typed characters.
