@@ -208,7 +208,23 @@ def main():
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    if '--check-ai-model' in sys.argv:
+    if '--check-ai-download' in sys.argv:
+        import argparse
+        parser = argparse.ArgumentParser(description='Check packaged TLS/download/integrity without downloading weights')
+        parser.add_argument('--check-ai-download', action='store_true')
+        parser.add_argument('--model-root', required=True)
+        args = parser.parse_args()
+        manifest = ModelStore().manifest
+        manifest = dict(manifest, files=[entry for entry in manifest['files'] if entry['name'] == 'config.json'])
+        formatter = EmbeddedFormatter(ModelStore(root=args.model_root, manifest=manifest))
+        try:
+            formatter.install().result()
+            if formatter.state != 'unloaded':
+                raise RuntimeError(formatter.message)
+            print('Talky packaged download check passed (pinned config, TLS and integrity).', flush=True)
+        finally:
+            formatter.close()
+    elif '--check-ai-model' in sys.argv:
         import argparse
         parser = argparse.ArgumentParser(description='Offline packaged AI inference check; no recording or paste')
         parser.add_argument('--check-ai-model', action='store_true')
@@ -231,10 +247,13 @@ if __name__ == "__main__":
         import mlx.core as mx
         import mlx_lm
         import certifi
+        import ssl
         from tools.core_paths import resource_path
         assert os.path.isfile(resource_path('talky-logo.jpg'))
         assert os.path.isfile(resource_path('tools/model_manifests.json'))
         assert os.path.isfile(certifi.where())
+        # A present CA bundle alone does not prove the packaged SSL runtime works.
+        ssl.create_default_context(cafile=certifi.where())
         check = mx.array([1, 2], dtype=mx.float32) + 1
         mx.eval(check)
         assert check.tolist() == [2.0, 3.0]

@@ -92,7 +92,7 @@ are in [the benchmark report](benchmarks/m4-pro-2026-10-27.json).
 
 ## Validation
 
-65 regression tests, native UI menu-state checks, dependency consistency, shell
+69 regression tests, native UI menu-state checks, dependency consistency, shell
 syntax and diff checks pass. The packaged app passes Metal/resource checks and
 real offline model/tokenizer/generation checks. Both the new app and preserved
 session preview pass deep/strict code-signature verification. No microphone
@@ -116,6 +116,7 @@ python3.12 -m venv .venv-mlx
 
 TALKY_DIST_PATH=dist/mlx-preview TALKY_BUILD_PATH=build/mlx-preview ./build.sh
 dist/mlx-preview/Talky.app/Contents/MacOS/Talky --check-build
+dist/mlx-preview/Talky.app/Contents/MacOS/Talky --check-ai-download --model-root "$PWD/build/packaged-download-check"
 dist/mlx-preview/Talky.app/Contents/MacOS/Talky --check-ai-model --model-root "$PWD/build/mlx-models"
 ```
 
@@ -125,6 +126,17 @@ The offline check uses the installed pinned model and performs real inference
 without microphone capture, focus inspection or paste. Weights are outside the
 approximately 1.1 GB app bundle. No new preview was launched for actual dictation
 during implementation.
+
+Version 2.1.1 fixes a download-dialog loop: confirming installation no longer
+re-enters the formatting-selection handler, including when installation fails
+immediately. A pending download or open prompt cannot open another prompt, and
+failed installation status remains visible until an explicit retry. The packaged
+download check exercises TLS, the installer worker and integrity validation on a
+937-byte pinned config file, without downloading the full weights.
+It also bundles the Python distribution's SSL policy companion when present;
+the missing file prevented HTTPS context creation in the previous app. Certificate
+verification remains enabled. `--check-build` now creates an SSL context as well
+as checking that the CA bundle exists.
 
 ## Remaining release gates
 

@@ -163,7 +163,8 @@ class EmbeddedFormatter:
             if self._load_future and not self._load_future.done():
                 return self._load_future
             if not self.store.installed():
-                self._notify('not_installed', 'AI model not installed — using Fast')
+                if self._state != 'failed':
+                    self._notify('not_installed', 'AI model not installed — using Fast')
                 return None
             self._notify('loading', 'Loading local AI model — using Fast')
             self._load_future = self._submit(self._load)
@@ -197,8 +198,17 @@ class EmbeddedFormatter:
         except DownloadCancelled:
             self._notify('not_installed', 'AI download cancelled — retry from menu')
         except Exception as error:
-            print('[mlx] installation failed:', type(error).__name__, flush=True)
-            self._notify('failed', 'AI download failed — retry from menu')
+            import os
+            if os.environ.get('TALKY_DEBUG_INSTALL') == '1':
+                import traceback
+                traceback.print_exc()
+            detail = type(error).__name__
+            if isinstance(error, ModuleNotFoundError):
+                detail += ': ' + str(error.name)
+            elif getattr(error, 'code', None):
+                detail += ': HTTP ' + str(error.code)
+            print('[mlx] installation failed:', detail, flush=True)
+            self._notify('failed', 'AI download failed (' + detail + ') — retry from menu')
 
     def _load(self):
         with GPU_LOCK:

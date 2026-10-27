@@ -562,12 +562,12 @@ class StatusBarController:
             )
             item.setState_(state)
 
-    def _set_formatting_mode(self, mode):
+    def _set_formatting_mode(self, mode, notify=True):
         self._formatting_mode = mode
         self._config.set_formatting_mode(mode)
         self._update_formatting_checks()
         print(f"[app] Formatting mode set to: {mode}", flush=True)
-        if self.on_formatting_change:
+        if notify and self.on_formatting_change:
             self.on_formatting_change(mode)
 
     def set_ai_status(self, state, message):
@@ -1022,6 +1022,7 @@ class TalkyApp:
         self._audio = None
         self._output = None
         self._formatter = None
+        self._ai_download_prompt_open = False
         self.status_bar.on_formatting_change = self._formatting_changed
         self.status_bar._menu_target._ai_install_fn = self._install_ai
         self.status_bar._menu_target._ai_cancel_fn = self._cancel_ai_download
@@ -1096,6 +1097,8 @@ class TalkyApp:
         if not self._formatter:
             self._show_notice('Wait for the speech engine to start')
             return
+        if self._ai_download_prompt_open or self._formatter.state in ('downloading', 'loading'):
+            return
         if self._formatter.store.installed() and self._formatter.state != 'failed':
             self.status_bar._set_formatting_mode('polished')
             return
@@ -1108,9 +1111,16 @@ class TalkyApp:
             'Fast dictation stays available during the download. This is a preview.')
         alert.addButtonWithTitle_('Download')
         alert.addButtonWithTitle_('Later')
-        if alert.runModal() == AppKit.NSAlertFirstButtonReturn:
-            self._formatter.install()
-            self.status_bar._set_formatting_mode('polished')
+        self._ai_download_prompt_open = True
+        try:
+            if alert.runModal() == AppKit.NSAlertFirstButtonReturn:
+                # Set the selection without invoking the mode-change handler:
+                # a failed/instant download must not recursively reopen this alert.
+                self.status_bar._set_formatting_mode('polished', notify=False)
+                self._formatter.set_enabled(True)
+                self._formatter.install()
+        finally:
+            self._ai_download_prompt_open = False
 
     def _cancel_ai_download(self):
         if self._formatter:

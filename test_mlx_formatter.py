@@ -14,6 +14,59 @@ from tools.core_mlx_llm import EmbeddedFormatter, MLXRuntime
 from tools.core_session import DictationController
 from tools.core_llm import preserves_dictation
 from tools.core_memory import MemoryMonitor, GIB
+from app import TalkyApp, StatusBarController
+import AppKit
+
+
+class DownloadDialogTests(unittest.TestCase):
+    def setUp(self):
+        self.app = object.__new__(TalkyApp)
+        self.app._ai_download_prompt_open = False
+        self.formatter = mock.Mock()
+        self.formatter.state = 'not_installed'
+        self.formatter.store.installed.return_value = False
+        self.formatter.store.download_bytes = 984012537
+        def enable(enabled):
+            # Simulate the old backend overwriting a failure immediately.
+            self.formatter.state = 'not_installed'
+        def fail():
+            self.formatter.state = 'failed'
+        self.formatter.set_enabled.side_effect = enable
+        self.formatter.install.side_effect = fail
+        self.app._formatter = self.formatter
+        status = object.__new__(StatusBarController)
+        status._config = mock.Mock()
+        status._update_formatting_checks = mock.Mock()
+        status.on_formatting_change = self.app._formatting_changed
+        self.app.status_bar = status
+        self.alert = mock.Mock()
+        self.alert.runModal.side_effect = [AppKit.NSAlertFirstButtonReturn,
+                                         AssertionError('Download dialog opened recursively')]
+        patcher = mock.patch('app.AppKit.NSAlert')
+        alert_class = patcher.start()
+        self.addCleanup(patcher.stop)
+        alert_class.alloc.return_value.init.return_value = self.alert
+
+    def test_immediate_failure_does_not_reopen_download_dialog(self):
+        self.app._formatting_changed('polished')
+        self.assertEqual(self.alert.runModal.call_count, 1)
+        self.formatter.install.assert_called_once()
+        self.assertEqual(self.formatter.state, 'failed')
+        self.assertFalse(self.app._ai_download_prompt_open)
+
+    def test_later_does_not_start_download(self):
+        self.alert.runModal.side_effect = [AppKit.NSAlertSecondButtonReturn]
+        self.app._install_ai()
+        self.formatter.install.assert_not_called()
+        self.assertFalse(self.app._ai_download_prompt_open)
+
+    def test_pending_download_or_open_prompt_cannot_open_another_dialog(self):
+        self.formatter.state = 'downloading'
+        self.app._install_ai()
+        self.formatter.state = 'not_installed'
+        self.app._ai_download_prompt_open = True
+        self.app._install_ai()
+        self.alert.runModal.assert_not_called()
 
 
 class ModelStoreTests(unittest.TestCase):
@@ -270,6 +323,18 @@ class FormatterTests(unittest.TestCase):
         self.assertEqual(self.formatter.state, 'failed')
         self.factory.side_effect = FakeRuntime
         self.ready()
+
+    def test_failed_download_stays_visible_when_polished_is_selected(self):
+        self.formatter.store.installed = lambda: False
+        self.formatter.store.install = mock.Mock(side_effect=PermissionError('Synthetic failure'))
+        self.formatter.install().result(timeout=2)
+        message = self.formatter.message
+        self.assertEqual(self.formatter.state, 'failed')
+        self.formatter.set_enabled(True)
+        self.assertEqual(self.formatter.state, 'failed')
+        self.assertEqual(self.formatter.message, message)
+        self.formatter.install().result(timeout=2)
+        self.assertEqual(self.formatter.store.install.call_count, 2)
 
     def test_low_memory_unloads_and_recovers_without_overlapping_inference(self):
         runtime = self.ready()

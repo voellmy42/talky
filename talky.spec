@@ -1,5 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
+from pathlib import Path
+import ssl
+
+# Some Python distributions ship an SSL policy companion alongside ssl.py.
+# Keep it beside the frozen module, preserving that runtime's trust policy.
+ssl_policy = Path(ssl.__file__).with_name('codex-rejected-cas.pem')
+ssl_support_datas = [(str(ssl_policy), '.')] if ssl_policy.is_file() else []
 
 # Collect MLX and Metal shader resources
 mlx_datas, mlx_binaries, mlx_hiddenimports = collect_all('mlx')
@@ -14,7 +21,7 @@ a = Analysis(
         ('talky-logo.jpg', '.'),
         ('tools/model_manifests.json', 'tools'),
         ('packaging/AI-MODELS.md', 'licenses'),
-    ] + mlx_datas + mlx_metal_datas + mlx_whisper_datas
+    ] + mlx_datas + mlx_metal_datas + mlx_whisper_datas + ssl_support_datas
       + copy_metadata('mlx-lm') + copy_metadata('transformers'),
     hiddenimports=[
         # pyobjc frameworks
@@ -122,8 +129,8 @@ app = BUNDLE(
     info_plist={
         'LSUIElement': True,
         'CFBundleDisplayName': 'Talky',
-        'CFBundleShortVersionString': '2.1.0',
-        'CFBundleVersion': '2.1.0',
+        'CFBundleShortVersionString': '2.1.1',
+        'CFBundleVersion': '2.1.1',
         'LSMinimumSystemVersion': '26.0',
         'NSMicrophoneUsageDescription': 'Talky needs microphone access for speech-to-text dictation.',
     },
