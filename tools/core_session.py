@@ -1,5 +1,5 @@
 """Dictation lifecycle, independent of the microphone and Cocoa UI."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import threading
 import time
 
@@ -10,6 +10,7 @@ class Session:
     target: object
     language: str
     formatting_mode: str
+    cancelled: threading.Event = field(default_factory=threading.Event)
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,7 @@ class Result:
     text: str
     target: object
     outcome: str
+    formatting_reason: str = ''
 
 
 class DictationController:
@@ -59,6 +61,7 @@ class DictationController:
         with self._lock:
             if self._session is None:
                 return False
+            self._session.cancelled.set()
             self._generation += 1
             self._session = None
             self._last = None
@@ -106,13 +109,23 @@ class DictationController:
                 self._last = Result(raw, raw, session.target, 'available')
                 self._status('formatting', 'Polishing… Esc to cancel' if session.formatting_mode == 'polished' else 'Formatting…')
             start = time.perf_counter()
-            text = self.formatter.format_text(raw, language=session.language, mode=session.formatting_mode) or raw
+            formatting_reason = ''
+            if getattr(type(self.formatter), 'supports_format_requests', False) is True:
+                formatted = self.formatter.format_session(
+                    raw, language=session.language, mode=session.formatting_mode,
+                    session_generation=session.generation, cancel=session.cancelled)
+                text = formatted.text or raw
+                if formatted.outcome == 'fallback':
+                    formatting_reason = formatted.reason
+                timings['ai_generation_seconds'] = formatted.generation_seconds
+            else:
+                text = self.formatter.format_text(raw, language=session.language, mode=session.formatting_mode) or raw
             timings['formatting_seconds'] = time.perf_counter() - start
             with self._lock:
                 if session.generation != self._generation:
                     # Do not retain a cancelled transcript that completed late.
                     return None
-                self._last = Result(raw, text, session.target, 'available')
+                self._last = Result(raw, text, session.target, 'available', formatting_reason)
                 self._status('delivering', 'Checking destination…')
 
             start = time.perf_counter()
@@ -124,9 +137,12 @@ class DictationController:
             with self._lock:
                 if session.generation != self._generation:
                     return None
-                self._last = Result(raw, text, session.target, outcome)
+                self._last = Result(raw, text, session.target, outcome, formatting_reason)
                 if outcome == 'sent':
-                    self._status('ready', 'Paste sent')
+                    message = 'Paste sent'
+                    if formatting_reason:
+                        message += ' — Fast fallback (' + formatting_reason.replace('_', ' ') + ')'
+                    self._status('ready', message)
                 else:
                     self._status('ready', 'Text ready — Copy Last Dictation')
             if released_at is not None:

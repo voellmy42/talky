@@ -1,30 +1,45 @@
-# LLM Formatter Standard Operating Procedure (SOP)
+# Dictation formatting SOP
 
-## Purpose
-Format raw transcribed text without changing its meaning or tone, while keeping everyday dictation responsive.
+Fast mode uses `LLMFormatter.fast_cleanup` in `tools/core_llm.py`. It is the default
+and must not load an LLM or make a network request.
 
-## Tool Execution Context
-- **Script path**: `tools/core_llm.py`
-- **Dependencies**: `requests` or `ollama-python`
+Polished preview uses `EmbeddedFormatter` in `tools/core_mlx_llm.py`, with pinned
+models installed by `tools/core_model_store.py`. `FormatRequest` and `FormatResult`
+define the in-memory request/result schema. One worker owns model loading,
+generation and unloading. Whisper and MLX-LM share `GPU_LOCK`; no model work runs
+on Cocoa or shortcut callback threads.
 
-## Input Data Shape
-- `raw_transcription` (String)
-- `language` (`en` or `de`)
-- `mode` (`fast` or `polished`)
+Installation requires an explicit user action. Show size, progress, cancel and
+retry. Verify hashes against the bundled manifest, stage incomplete files, and
+activate only a verified complete model. Loading must use an existing local path,
+local tokenizer files and no remote custom code. Never send dictation to a remote
+service or log transcript content. Installation network traffic contains only
+public model file requests.
 
-## Output Data Shape
-- Returns `cleaned_text` (String)
+Use the model chat template with thinking explicitly disabled. Keep prompts
+independent between dictations; retain no per-request prompt cache. Warm the model
+on synthetic input, release it when disabled and after five idle minutes, and
+never load it for Fast startup. Model setup is separate from speech readiness.
+After AI is first requested, sample available memory every ten seconds. Below
+1 GiB, pause generation and queue weight eviction on the worker; allow a later
+reload after 2 GiB becomes available. These thresholds are a development heuristic,
+not proof against memory exhaustion. Stop the monitor on shutdown.
 
-## Execution Rules
-- **Fast Mode**: This is the default. Apply conservative deterministic cleanup and never make an HTTP request.
-- **Polished Mode**: Communicate exclusively with the local Ollama instance at `http://localhost:11434/api/generate`. No external LLM APIs are permitted.
-- **Model Selection**: Preserve the installed `gemma4:latest` default. Smaller formatters may be configured later if they meet bilingual quality requirements.
-- **Prompting Strictness**: The system prompt must aggressively enforce the "Format Only" rule. 
-  - *Example System Prompt*: "You are a dictation formatting engine. Your ONLY job is to take the user's spoken text, remove filler words (um, uh, like), and fix obvious grammar/punctuation errors. DO NOT add new information, DO NOT summarize, DO NOT answer questions in the text. Output ONLY the corrected text and nothing else."
-- **Bounded Wait**: Polished mode must time out and return usable transcription instead of blocking the pipeline indefinitely.
-- **Optional Service**: Basic setup and dictation must not require, start or quit Ollama. Polished requests use a 2.5-second HTTP timeout, which is a transport timeout rather than a strict whole-operation deadline.
-- **Restricted Edits**: Validate token order and substantive-word preservation before using model output. Permit punctuation/case cleanup and hesitation removal; otherwise return raw text. Never log transcripts by default.
-- **Keep-Alive**: Keep the model loaded for 30 minutes after a Polished request.
+Buffer streaming generation internally until completion. Apply deterministic
+cleanup, then validate source-order words and protected technical tokens with the
+dictation language. German “um” must not be deleted. Only faithful punctuation,
+case/layout edits and limited hesitation removal are allowed. This validator does
+not prove semantic equivalence; grammar rewriting and semantic self-correction
+need a separate editing policy and evaluation.
 
-## Error States & Handling
-- *Ollama Service Offline / timeout / empty output* -> Return `raw_transcription` as a fallback and log a warning. Do not crash the dictation pipeline over an LLM failure.
+Use a 1.5-second warm-generation budget for <=80 words and 4 seconds otherwise,
+including worker queue time and final GPU cleanup. Check cancellation/deadline
+between steps and again after completion. Running GPU kernels cannot be forcibly
+interrupted; keep the pipeline busy until they drain. Never paste partial,
+length-limited, cancelled or rejected output. On non-cancellation failure, return
+Fast cleanup and a reason code; preserve the original in the session controller.
+Cancellation invalidates the session and discards its text before delivery.
+
+The legacy Ollama `LLMFormatter` remains for development comparison. It is not the
+dictation backend. Meeting summarization still uses `tools/meeting_llm.py` and
+Ollama; migrating it is outside this change.

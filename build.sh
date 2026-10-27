@@ -4,11 +4,12 @@ set -euo pipefail
 
 TALKY_DIST_PATH="${TALKY_DIST_PATH:-dist}"
 TALKY_BUILD_PATH="${TALKY_BUILD_PATH:-build}"
+TALKY_VENV="${TALKY_VENV:-.venv-mlx}"
 export PYINSTALLER_CONFIG_DIR="${PYINSTALLER_CONFIG_DIR:-$PWD/build/pyinstaller-cache}"
 export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-$PWD/build/python-cache}"
 
 echo "==> Activating virtualenv..."
-source .venv/bin/activate
+source "$TALKY_VENV/bin/activate"
 
 echo "==> Running PyInstaller..."
 pyinstaller talky.spec --clean --noconfirm --distpath "$TALKY_DIST_PATH" --workpath "$TALKY_BUILD_PATH"

@@ -1,0 +1,20 @@
+# Embedded MLX preview: Python 3.12, Apple Silicon, macOS 26+.
+# Install the exact resolved environment from requirements-mlx.lock.txt.
+mlx-lm==0.32.2
+mlx==0.32.4
+mlx-whisper==0.4.3
+scipy
+av
+sounddevice
+requests
+pyperclip
+pyautogui
+pyobjc-framework-Cocoa
+pyobjc-framework-Quartz
+pyobjc-framework-AVFoundation
+pyobjc-framework-ApplicationServices
+pyobjc-framework-CoreAudio
+pyobjc-framework-CoreMedia
+pyobjc-framework-CoreText
+pyinstaller
+psutil

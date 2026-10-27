@@ -1,0 +1,50 @@
+[
+  {
+    "id": "long-0-0",
+    "split": "development",
+    "language": "en",
+    "category": "long",
+    "raw": "hello alex I reviewed the proposed changes this morning and I think the recording controls are ready for another test please keep the original transcript available because we still need to compare the punctuation do not change the default mode yet I want to test it on the older laptop first the small model should stay optional and the microphone must remain off while the app is idle please check the cancellation behavior and the clipboard recovery after switching windows once those checks pass we can prepare a new development build and ask the team to try it next week",
+    "expected": ""
+  },
+  {
+    "id": "long-0-1",
+    "split": "heldout",
+    "language": "en",
+    "category": "long",
+    "raw": "hello alex I reviewed the proposed changes this morning and I think the recording controls are ready for another test please keep the original transcript available because we still need to compare the punctuation do not change the default mode yet I want to test it on the older laptop first the small model should stay optional and the microphone must remain off while the app is idle please check the cancellation behavior and the clipboard recovery after switching windows once those checks pass we can prepare a new development build and ask the team to try it next week Please do not publish the release today",
+    "expected": ""
+  },
+  {
+    "id": "long-1-0",
+    "split": "development",
+    "language": "de",
+    "category": "long",
+    "raw": "hallo alex ich habe die vorgeschlagenen Änderungen heute Morgen geprüft und denke dass die Aufnahme bereit für einen weiteren Test ist bitte behalte das ursprüngliche Transkript weil wir die Satzzeichen noch vergleichen müssen ändere den Standardmodus noch nicht ich möchte zuerst das ältere Notebook testen das kleine Modell soll optional bleiben und das Mikrofon muss im Leerlauf ausgeschaltet sein bitte prüfe auch den Abbruch und die Wiederherstellung nach einem Fensterwechsel wenn diese Tests bestanden sind können wir einen neuen Entwicklungsstand vorbereiten und das Team nächste Woche um einen Test bitten",
+    "expected": ""
+  },
+  {
+    "id": "long-1-1",
+    "split": "heldout",
+    "language": "de",
+    "category": "long",
+    "raw": "hallo alex ich habe die vorgeschlagenen Änderungen heute Morgen geprüft und denke dass die Aufnahme bereit für einen weiteren Test ist bitte behalte das ursprüngliche Transkript weil wir die Satzzeichen noch vergleichen müssen ändere den Standardmodus noch nicht ich möchte zuerst das ältere Notebook testen das kleine Modell soll optional bleiben und das Mikrofon muss im Leerlauf ausgeschaltet sein bitte prüfe auch den Abbruch und die Wiederherstellung nach einem Fensterwechsel wenn diese Tests bestanden sind können wir einen neuen Entwicklungsstand vorbereiten und das Team nächste Woche um einen Test bitten Bitte veröffentliche die Version heute nicht",
+    "expected": ""
+  },
+  {
+    "id": "long-2-0",
+    "split": "development",
+    "language": "en",
+    "category": "long",
+    "raw": "please review tools/core_llm.py and main.py before changing the API the retry limit is 500 and the threshold is 0.05 do not replace user_id with a different identifier keep OAuth and MLX and macOS exactly as written the original transcript should remain available when the destination changes and the clipboard must not be overwritten after another application copies something I would also like a short report describing what was tested what failed and which cases still need a real device test there is no need to send the message automatically after dictation finishes",
+    "expected": ""
+  },
+  {
+    "id": "long-2-1",
+    "split": "heldout",
+    "language": "en",
+    "category": "long",
+    "raw": "please review tools/core_llm.py and main.py before changing the API the retry limit is 500 and the threshold is 0.05 do not replace user_id with a different identifier keep OAuth and MLX and macOS exactly as written the original transcript should remain available when the destination changes and the clipboard must not be overwritten after another application copies something I would also like a short report describing what was tested what failed and which cases still need a real device test there is no need to send the message automatically after dictation finishes Please do not publish the release today",
+    "expected": ""
+  }
+]

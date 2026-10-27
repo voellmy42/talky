@@ -1,7 +1,7 @@
 import requests
 import re
 
-def preserves_dictation(raw, candidate):
+def preserves_dictation(raw, candidate, language=None):
     """Accept punctuation/case edits and hesitation removal in source order.
 
     Deliberately rejects paraphrases and self-corrections that need semantic
@@ -13,6 +13,14 @@ def preserves_dictation(raw, candidate):
     source = re.findall(pattern, raw)
     edited = re.findall(pattern, candidate)
     fillers = {'um', 'uh', 'erm', 'hm', 'äh', 'ähm'}
+    if language == 'de':
+        fillers = {'hm', 'äh', 'ähm'}
+    elif language == 'en':
+        fillers = {'um', 'uh', 'erm', 'hm'}
+    # Punctuation can be part of code or a path rather than prose formatting.
+    protected = r'https?://[^\s,;!?]+|--[\w-]+|[\w/]+(?:\.[\w]+)+|[\w.-]+/[\w./-]+|[<>=!]=|[<>]'
+    if re.findall(protected, raw) != re.findall(protected, candidate):
+        return False
     index = 0
     for word in source:
         if index < len(edited) and word.casefold() == edited[index].casefold():
@@ -137,7 +145,7 @@ class LLMFormatter:
                 print(f"[core_llm] Warning: model returned empty response. Returning raw transcription.")
                 return raw_transcription.strip()
 
-            if not preserves_dictation(raw_transcription, cleaned):
+            if not preserves_dictation(raw_transcription, cleaned, language):
                 print('[core_llm] Cleanup rejected; preserving original.', flush=True)
                 return raw_transcription.strip()
             return cleaned
