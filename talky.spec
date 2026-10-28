@@ -130,8 +130,8 @@ app = BUNDLE(
     info_plist={
         'LSUIElement': True,
         'CFBundleDisplayName': 'Talky',
-        'CFBundleShortVersionString': '2.2.0',
-        'CFBundleVersion': '2.2.0',
+        'CFBundleShortVersionString': '2.3.0',
+        'CFBundleVersion': '2.3.0',
         'LSMinimumSystemVersion': '26.0',
         'NSMicrophoneUsageDescription': 'Talky needs microphone access for speech-to-text dictation.',
     },

@@ -130,6 +130,7 @@ def main():
             get_toggle_shortcut=app_ref.status_bar.get_toggle_shortcut,
         )
         app_ref._audio = audio_tool
+        app_ref.overlay.level_source = lambda: audio_tool.input_level
         print("--- Warmup complete ---", flush=True)
         on_ready()
 
@@ -141,6 +142,7 @@ def main():
             if controller.state != 'ready' or meeting_session is not None:
                 app_ref._show_notice('Finish dictation before starting a meeting')
                 return
+            app_ref._stop_preview()
             lang = get_language()
 
             def on_chunk(count):
@@ -221,7 +223,10 @@ def main():
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    if '--check-ai-download' in sys.argv:
+    if '--preview-ui' in sys.argv:
+        from tools.ui_preview import run_preview
+        run_preview()
+    elif '--check-ai-download' in sys.argv:
         import argparse
         parser = argparse.ArgumentParser(description='Check packaged TLS/download/integrity without downloading weights')
         parser.add_argument('--check-ai-download', action='store_true')

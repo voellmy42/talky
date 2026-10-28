@@ -3,11 +3,10 @@ import AppKit
 import ApplicationServices
 import subprocess
 import threading
-import Quartz
 import AVFoundation
-from Foundation import NSString
 
 from tools.core_config import ConfigManager
+from tools.ui_overlay import OverlayWindow
 
 
 # ---------------------------------------------------------------------------
@@ -40,221 +39,6 @@ class _Dispatcher(AppKit.NSObject):
 
 
 # ---------------------------------------------------------------------------
-# Rounded background view
-# ---------------------------------------------------------------------------
-
-class _RoundedBackgroundView(AppKit.NSVisualEffectView):
-    """Modern background with glassmorphism and tinting."""
-
-    def initWithFrame_(self, frame):
-        self = objc.super(_RoundedBackgroundView, self).initWithFrame_(frame)
-        if self:
-            self.setWantsLayer_(True)
-            self.setMaterial_(AppKit.NSVisualEffectMaterialHUDWindow)
-            self.setBlendingMode_(AppKit.NSVisualEffectBlendingModeBehindWindow)
-            self.setState_(AppKit.NSVisualEffectStateActive)
-            self.layer().setCornerRadius_(frame.size.height / 2)
-            self.layer().setMasksToBounds_(True)
-            self.layer().setBorderWidth_(0.5)
-            self.layer().setBorderColor_(
-                AppKit.NSColor.colorWithCalibratedWhite_alpha_(1.0, 0.2).CGColor()
-            )
-
-            # Tint layer for different modes (e.g., meeting mode blue tint)
-            self._tint_layer = Quartz.CALayer.layer()
-            self._tint_layer.setFrame_(self.bounds())
-            self._tint_layer.setOpacity_(0.0)
-            self.layer().addSublayer_(self._tint_layer)
-        return self
-
-    def setTint_withAlpha_(self, color, alpha):
-        self._tint_layer.setBackgroundColor_(color.CGColor())
-        self._tint_layer.setOpacity_(alpha)
-
-    def drawRect_(self, rect):
-        # Visual effect view handles its own drawing
-        pass
-
-
-# ---------------------------------------------------------------------------
-# Overlay window
-# ---------------------------------------------------------------------------
-
-class OverlayWindow:
-    """Modern floating pill showing recording, warming up, or meeting state."""
-
-    def __init__(self):
-        width, height = 480, 64
-        screen = AppKit.NSScreen.mainScreen().frame()
-        # Position on the visible screen, above the Dock.
-        screen = AppKit.NSScreen.mainScreen().visibleFrame()
-        x = (screen.size.width - width) / 2
-        x += screen.origin.x
-        y = screen.origin.y + 32
-
-        self._window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            AppKit.NSMakeRect(x, y, width, height),
-            AppKit.NSWindowStyleMaskBorderless,
-            AppKit.NSBackingStoreBuffered,
-            False,
-        )
-        self._window.setLevel_(AppKit.NSStatusWindowLevel + 1)
-        self._window.setOpaque_(False)
-        self._window.setBackgroundColor_(AppKit.NSColor.clearColor())
-        self._window.setIgnoresMouseEvents_(True)
-        self._window.setHasShadow_(True)
-        self._window.setCollectionBehavior_(
-            AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
-            | AppKit.NSWindowCollectionBehaviorStationary
-        )
-
-        content = AppKit.NSView.alloc().initWithFrame_(
-            AppKit.NSMakeRect(0, 0, width, height)
-        )
-        self._window.setContentView_(content)
-
-        # Background with glassmorphism
-        self._bg = _RoundedBackgroundView.alloc().initWithFrame_(
-            AppKit.NSMakeRect(0, 0, width, height)
-        )
-        content.addSubview_(self._bg)
-
-        # Pulsing status indicator dot
-        self._indicator = AppKit.NSView.alloc().initWithFrame_(
-            AppKit.NSMakeRect(16, (height - 10) / 2, 10, 10)
-        )
-        self._indicator.setWantsLayer_(True)
-        self._indicator.layer().setCornerRadius_(5)
-        content.addSubview_(self._indicator)
-
-        # Main label
-        self._label = AppKit.NSTextField.labelWithString_("")
-        # Adjust frame to be next to the indicator
-        self._label.setFrame_(AppKit.NSMakeRect(36, 10, width - 52, height - 20))
-        self._label.setMaximumNumberOfLines_(2)
-        self._label.cell().setWraps_(True)
-        self._label.cell().setScrollable_(False)
-        self._label.setFont_(
-            AppKit.NSFont.systemFontOfSize_weight_(15, AppKit.NSFontWeightSemibold)
-        )
-        self._label.setTextColor_(AppKit.NSColor.whiteColor())
-        self._label.setAlignment_(AppKit.NSTextAlignmentLeft)
-        self._label.setDrawsBackground_(False)
-        self._label.setBezeled_(False)
-        self._label.setEditable_(False)
-        self._label.setSelectable_(False)
-        content.addSubview_(self._label)
-
-        self._meeting_timer = None
-        self._hide_timer = None
-
-    def show(self, text="Listening..."):
-        if self._hide_timer is not None:
-            self._hide_timer.invalidate()
-            self._hide_timer = None
-        self.update_text(text)
-        self._window.setAlphaValue_(0.0)
-        self._window.orderFrontRegardless()
-        
-        # Smooth fade-in
-        AppKit.NSAnimationContext.beginGrouping()
-        AppKit.NSAnimationContext.currentContext().setDuration_(0.2)
-        self._window.animator().setAlphaValue_(1.0)
-        AppKit.NSAnimationContext.endGrouping()
-
-    def update_text(self, text):
-        clean_text = text.strip()
-        self._label.setStringValue_(clean_text)
-        width = self._window.contentView().bounds().size.width
-        height = self._window.contentView().bounds().size.height
-        text_width = NSString.stringWithString_(clean_text).sizeWithAttributes_(
-            {AppKit.NSFontAttributeName: self._label.font()}).width
-        label_height = 24 if text_width <= width - 52 else height - 20
-        self._label.setFrame_(AppKit.NSMakeRect(36, (height - label_height) / 2 - 1,
-                                              width - 52, label_height))
-        
-        # Color & Animation logic based on status
-        if "Listening" in clean_text or clean_text.startswith('Dictating'):
-            self._set_indicator_style(AppKit.NSColor.systemRedColor(), True)
-        elif clean_text.startswith('Editing selection'):
-            self._set_indicator_style(AppKit.NSColor.systemPurpleColor(), True)
-        elif any(word in clean_text for word in ('Warming', 'Summarizing', 'Processing', 'Transcribing', 'Understanding', 'Applying')):
-            self._set_indicator_style(AppKit.NSColor.systemOrangeColor(), True)
-        elif "Meeting" in clean_text:
-            self._set_indicator_style(AppKit.NSColor.systemBlueColor(), False)
-        else:
-            self._set_indicator_style(AppKit.NSColor.systemGreenColor(), False)
-
-    def _set_indicator_style(self, color, pulse):
-        self._indicator.layer().setBackgroundColor_(color.CGColor())
-        self._indicator.layer().removeAnimationForKey_("pulse")
-        if pulse:
-            anim = Quartz.CABasicAnimation.animationWithKeyPath_("opacity")
-            anim.setFromValue_(1.0)
-            anim.setToValue_(0.3)
-            anim.setDuration_(0.8)
-            anim.setAutoreverses_(True)
-            anim.setRepeatCount_(float('inf'))
-            self._indicator.layer().addAnimation_forKey_(anim, "pulse")
-        else:
-            self._indicator.layer().setOpacity_(1.0)
-
-    def hide(self):
-        if self._hide_timer is not None:
-            self._hide_timer.invalidate()
-            self._hide_timer = None
-        self._indicator.layer().removeAnimationForKey_("pulse")
-        # Smooth fade-out before hiding
-        AppKit.NSAnimationContext.beginGrouping()
-        AppKit.NSAnimationContext.currentContext().setDuration_(0.2)
-        self._window.animator().setAlphaValue_(0.0)
-        AppKit.NSAnimationContext.endGrouping()
-        
-        # Schedule the actual window removal after animation
-        def _hide_final(timer):
-            self._window.orderOut_(None)
-            self._hide_timer = None
-        self._hide_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
-            0.2, False, _hide_final
-        )
-
-    def set_dictation_style(self):
-        """Standard dark HUD pill."""
-        self._bg.setTint_withAlpha_(AppKit.NSColor.blackColor(), 0.0)
-
-    def set_meeting_style(self):
-        """Blue-tinted pill for meeting mode."""
-        self._bg.setTint_withAlpha_(AppKit.NSColor.systemBlueColor(), 0.2)
-
-    def start_meeting_timer(self, get_elapsed):
-        """Start a 1-second timer that updates the overlay with elapsed time."""
-        self.set_meeting_style()
-
-        def tick(timer):
-            secs = int(get_elapsed())
-            mins, s = divmod(secs, 60)
-            hrs, m = divmod(mins, 60)
-            time_str = f"{hrs}:{m:02d}:{s:02d}" if hrs > 0 else f"{m:02d}:{s:02d}"
-            self._label.setStringValue_(f"Meeting — {time_str}")
-            # Ensure indicator stays blue during meeting
-            self._set_indicator_style(AppKit.NSColor.systemBlueColor(), False)
-
-        self._window.setAlphaValue_(1.0)
-        self._window.orderFrontRegardless()
-        self._label.setStringValue_("Meeting — 00:00")
-        self._meeting_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
-            1.0, True, tick
-        )
-
-    def stop_meeting_timer(self):
-        """Stop the meeting timer and reset overlay style."""
-        if self._meeting_timer is not None:
-            self._meeting_timer.invalidate()
-            self._meeting_timer = None
-        self.set_dictation_style()
-
-
-# ---------------------------------------------------------------------------
 # Status bar controller
 # ---------------------------------------------------------------------------
 
@@ -273,6 +57,12 @@ class _MenuTarget(AppKit.NSObject):
     _shortcut_fn = None
     _ai_install_fn = None
     _ai_cancel_fn = None
+    _preview_fn = None
+
+    @objc.typedSelector(b"v@:@")
+    def previewAppearance_(self, sender):
+        if self._preview_fn:
+            self._preview_fn()
 
     @objc.typedSelector(b"v@:@")
     def installAI_(self, sender):
@@ -439,7 +229,7 @@ class StatusBarController:
 
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
-        # ---- Stats Dashboard ----
+        # ---- Activity submenu ----
         stats_header = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Productivity Stats", None, ""
         )
@@ -447,25 +237,25 @@ class StatusBarController:
         menu.addItem_(stats_header)
 
         self._stat_time_saved = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "  ⚡️ Time Saved: 0s", None, ""
+            "Time Saved: 0s", None, ""
         )
         self._stat_time_saved.setEnabled_(False)
         menu.addItem_(self._stat_time_saved)
 
         self._stat_dictations = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "  🎤 Dictations: 0", None, ""
+            "Dictations: 0", None, ""
         )
         self._stat_dictations.setEnabled_(False)
         menu.addItem_(self._stat_dictations)
 
         self._stat_speed = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "  🚀 Speed: 0 WPM", None, ""
+            "Speed: 0 WPM", None, ""
         )
         self._stat_speed.setEnabled_(False)
         menu.addItem_(self._stat_speed)
 
         self._stat_latency = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "  Last response: --", None, ""
+            "Last response: --", None, ""
         )
         self._stat_latency.setEnabled_(False)
         menu.addItem_(self._stat_latency)
@@ -534,6 +324,27 @@ class StatusBarController:
         quit_item.setTarget_(self._menu_target)
         menu.addItem_(quit_item)
 
+        # Keep the everyday menu short; existing item references still update live.
+        stats_start = menu.indexOfItem_(stats_header)
+        stats_end = menu.indexOfItem_(self._stat_latency)
+        stats_menu = AppKit.NSMenu.alloc().init()
+        for _ in range(stats_end - stats_start):
+            item = menu.itemAtIndex_(stats_start + 1)
+            menu.removeItem_(item)
+            stats_menu.addItem_(item)
+        stats_header.setTitle_('Activity')
+        stats_header.setEnabled_(True)
+        stats_header.setSubmenu_(stats_menu)
+        language_menu = AppKit.NSMenu.alloc().init()
+        for item in self._lang_items.values():
+            menu.removeItem_(item)
+            language_menu.addItem_(item)
+        lang_header.setEnabled_(True)
+        lang_header.setSubmenu_(language_menu)
+        preview_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            'Preview Appearance…', 'previewAppearance:', '')
+        preview_item.setTarget_(self._menu_target)
+        menu.insertItem_atIndex_(preview_item, menu.indexOfItem_(quit_item))
         self._status_item.setMenu_(menu)
 
     def _update_lang_checks(self):
@@ -583,11 +394,11 @@ class StatusBarController:
         self._update_shortcut_checks()
 
     def update_stats(self, stats: dict):
-        self._stat_time_saved.setTitle_(f"  ⚡️ Time Saved: {stats.get('time_saved', '0s')}")
-        self._stat_dictations.setTitle_(f"  🎤 Dictations: {stats.get('dictations', '0')}")
-        self._stat_speed.setTitle_(f"  🚀 Speed: {stats.get('speed_wpm', '0')} WPM")
+        self._stat_time_saved.setTitle_(f"Time Saved: {stats.get('time_saved', '0s')}")
+        self._stat_dictations.setTitle_(f"Dictations: {stats.get('dictations', '0')}")
+        self._stat_speed.setTitle_(f"Speed: {stats.get('speed_wpm', '0')} WPM")
         self._stat_latency.setTitle_(
-            f"  Last response: {stats.get('last_latency', '--')}"
+            f"Last response: {stats.get('last_latency', '--')}"
         )
 
     def set_recording(self, is_recording):
@@ -652,6 +463,13 @@ class _SetupTarget(AppKit.NSObject):
     _open_accessibility_fn = None
     _complete_fn = None
 
+    _preview_fn = None
+
+    @objc.typedSelector(b"v@:@")
+    def previewAppearance_(self, sender):
+        if self._preview_fn:
+            self._preview_fn()
+
     @objc.typedSelector(b"v@:@")
     def getStarted_(self, sender):
         if self._get_started_fn:
@@ -702,6 +520,8 @@ class SetupWizard:
         self._target._install_model_fn = self._request_microphone
         self._target._open_accessibility_fn = self._open_accessibility
         self._target._complete_fn = self._complete
+        self._target._preview_fn = self._show_preview
+        self._preview = None
 
         self._width = width
         self._height = height
@@ -725,6 +545,9 @@ class SetupWizard:
             logo_view = AppKit.NSImageView.alloc().initWithFrame_(
                 AppKit.NSMakeRect((width - 100) / 2, height - 160, 100, 100)
             )
+            logo_view.setWantsLayer_(True)
+            logo_view.layer().setCornerRadius_(22)
+            logo_view.layer().setMasksToBounds_(True)
             logo_view.setImage_(logo_img)
             logo_view.setImageScaling_(AppKit.NSImageScaleProportionallyUpOrDown)
             content.addSubview_(logo_view)
@@ -738,19 +561,21 @@ class SetupWizard:
 
         # USP
         usp = AppKit.NSTextField.labelWithString_(
-            "Fast & accurate speech-to-text that stays on your Mac.\n"
-            "Your voice never leaves your machine. 100% local, 100% private."
+            "Speak naturally. Write anywhere.\n"
+            "Dictation and voice editing, processed on your Mac."
         )
         usp.setFrame_(AppKit.NSMakeRect(40, height - 265, width - 80, 50))
         usp.setFont_(AppKit.NSFont.systemFontOfSize_(14))
         usp.setAlignment_(AppKit.NSTextAlignmentCenter)
         usp.setTextColor_(AppKit.NSColor.secondaryLabelColor())
-        usp.setMaximumNumberOfLines_(2)
+        usp.setMaximumNumberOfLines_(3)
+        usp.cell().setWraps_(True)
+        usp.cell().setScrollable_(False)
         content.addSubview_(usp)
 
         # Get Started button
         btn = AppKit.NSButton.alloc().initWithFrame_(
-            AppKit.NSMakeRect((width - 160) / 2, 40, 160, 36)
+            AppKit.NSMakeRect((width - 160) / 2, 52, 160, 36)
         )
         btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
         btn.setTitle_("Get Started")
@@ -758,8 +583,18 @@ class SetupWizard:
         btn.setAction_("getStarted:")
         btn.setFont_(AppKit.NSFont.systemFontOfSize_weight_(14, AppKit.NSFontWeightMedium))
         content.addSubview_(btn)
+        preview = AppKit.NSButton.buttonWithTitle_target_action_(
+            'Preview appearance', self._target, 'previewAppearance:')
+        preview.setFrame_(AppKit.NSMakeRect((width - 180) / 2, 16, 180, 28))
+        content.addSubview_(preview)
 
         self._window.setContentView_(content)
+
+    def _show_preview(self):
+        from tools.ui_preview import VisualPreview
+        if self._preview is None:
+            self._preview = VisualPreview()
+        self._preview.show()
 
     # ---- Page 2: Checklist ----
 
@@ -964,6 +799,8 @@ class SetupWizard:
 
     def _complete(self):
         """User clicked Complete Setup."""
+        if self._preview:
+            self._preview.close()
         if self._timer:
             self._timer.invalidate()
             self._timer = None
@@ -978,6 +815,8 @@ class SetupWizard:
         AppKit.NSApp.activateIgnoringOtherApps_(True)
 
     def close(self):
+        if self._preview:
+            self._preview.close()
         if self._timer:
             self._timer.invalidate()
             self._timer = None
@@ -1015,6 +854,8 @@ class TalkyApp:
         self._output = None
         self._formatter = None
         self._ai_download_prompt_open = False
+        self._preview = None
+        self.status_bar._menu_target._preview_fn = self._show_preview
         self.status_bar.on_ai_editing_change = self._ai_editing_changed
         self.status_bar._menu_target._ai_install_fn = self._install_ai
         self.status_bar._menu_target._ai_cancel_fn = self._cancel_ai_download
@@ -1039,6 +880,20 @@ class TalkyApp:
         else:
             self._start_pipeline()
         self._app.run()
+
+    def _stop_preview(self):
+        if self._preview:
+            self._preview.close()
+
+    def _show_preview(self):
+        if self._session_state not in ('ready', 'loading', 'error') or self.status_bar._meeting_active:
+            self._show_notice('Finish voice input before opening the preview')
+            return
+        from tools.ui_preview import VisualPreview
+        if self._preview is None:
+            self._preview = VisualPreview()
+        self.overlay.hide()
+        self._preview.show()
 
     def _show_wizard(self):
         self._wizard = SetupWizard(on_complete=self._on_setup_complete)
@@ -1155,6 +1010,7 @@ class TalkyApp:
         def show():
             if self._notice_timer:
                 self._notice_timer.invalidate()
+            self._stop_preview()
             self.overlay.show(message)
             self._notice_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
                 3.0, False, lambda timer: self._restore_session_overlay())
@@ -1165,6 +1021,7 @@ class TalkyApp:
         # controller state when the main-thread callback eventually runs.
         has_result = bool(self._controller and self._controller.last_result)
         def update():
+            self._stop_preview()
             self._session_state, self._session_message = state, message
             if self._notice_timer:
                 self._notice_timer.invalidate()
@@ -1207,6 +1064,7 @@ class TalkyApp:
     # -- main-thread UI mutations --
 
     def _main_record_start(self):
+        self._stop_preview()
         self.status_bar.set_recording(True)
         self.overlay.show("Listening...")
 
@@ -1224,6 +1082,7 @@ class TalkyApp:
         self.overlay.hide()
 
     def _main_warmup(self):
+        self._stop_preview()
         self._session_state, self._session_message = 'loading', 'Loading speech model…'
         self.status_bar.set_recording(False)
         self.status_bar.set_session_status('loading', 'Loading speech model…', False)
@@ -1239,6 +1098,9 @@ class TalkyApp:
                 self._on_meeting_start()
 
     def _quit(self):
+        self.overlay.close()
+        if self._preview:
+            self._preview.close()
         if self._controller:
             self._controller.close()
         if self._audio:

@@ -107,6 +107,21 @@ Talky unifies standard dictation and AI text modification under a single shortcu
 
 ---
 
+## Appearance Preview
+
+Choose **Preview Appearance…** in the Talky menu, or **Preview appearance** on
+its welcome screen. Try every visual state and **Play all states** without granting
+microphone permission. All audio levels in this window are simulated; it does not
+record, download models, read selections or paste text. Close the preview to stop it.
+
+From source, run `.venv-mlx/bin/python -m tools.ui_preview`. Packaged builds also
+support `/Applications/Talky.app/Contents/MacOS/Talky --preview-ui`.
+
+The compact capsule stays above the Dock and never takes keyboard focus. Listening
+bars follow input levels; processing uses a gentle traveling wave. Animations stop
+when hidden, and follow macOS Reduce Motion and Reduce Transparency preferences.
+The preview includes a reduced-motion switch for checking the static presentation.
+
 ## 🧪 Testing & Development
 
 ### Running the Test Suite

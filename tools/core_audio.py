@@ -67,6 +67,7 @@ class AudioCaptureTool:
 
         self.q = queue.Queue()
         self.is_recording = False
+        self.input_level = 0.0
         self._audio_lock = threading.Lock()
         self._ring_buffer = AudioRingBuffer(sample_rate * pre_roll_seconds)
         self._engine_running = False
@@ -233,7 +234,12 @@ class AudioCaptureTool:
         with self._audio_lock:
             self._ring_buffer.append(audio)
             if self.is_recording:
+                rms = float(np.sqrt(np.mean(audio * audio)))
+                # Latest scalar only: no raw audio or UI work crosses threads.
+                self.input_level = min(1.0, max(0.0, (rms - .003) / .12)) if np.isfinite(rms) else 0.0
                 self.q.put(audio)
+            else:
+                self.input_level = 0.0
 
     def _start_capture(self, include_pre_roll=True):
         """Open the microphone only after an explicit recording request."""
@@ -258,6 +264,7 @@ class AudioCaptureTool:
     def _stop_capture(self):
         with self._audio_lock:
             self.is_recording = False
+            self.input_level = 0.0
             self._ring_buffer = AudioRingBuffer(self._ring_buffer.max_samples)
         # stop(), unlike a warm persistent engine, releases input hardware.
         self._engine_running = False
