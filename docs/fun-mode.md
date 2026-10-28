@@ -59,3 +59,10 @@ remain available in the menu and accessibility label.
   check; native source rendering and behavior checks above passed.
 
 Live speech and cross-app paste are outside this visual-only validation.
+
+## User validation
+
+On 28 October 2026, the user reported that the updated app “works flawless on this
+new machine” after installation on this M1. This is user-reported validation of the
+installed experience; individual microphone, editing and paste scenarios were not
+specified. The automated desktop-inspection limitation above remains recorded.
