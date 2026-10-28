@@ -1,6 +1,8 @@
 """Meter lifecycle and bounded visual math; no native windows or microphone."""
 import queue
 import threading
+import tempfile
+from pathlib import Path
 import unittest
 from unittest import mock
 
@@ -8,6 +10,33 @@ import numpy as np
 
 from tools.core_audio import AudioCaptureTool, AudioRingBuffer
 from tools.ui_overlay import presentation, wave_heights
+from tools.core_config import ConfigManager
+from tools.ui_fun import emotion_for, screen_hint
+
+
+class AppearanceTests(unittest.TestCase):
+    def test_default_persistence_and_invalid_setting(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = str(Path(root) / 'config.json')
+            config = ConfigManager(path)
+            self.assertEqual(config.get_appearance(), 'standard')
+            config.set_appearance('fun')
+            self.assertEqual(ConfigManager(path).get_appearance(), 'fun')
+            with self.assertRaises(ValueError):
+                config.set_appearance('unknown')
+            Path(path).write_text('{"appearance": []}')
+            self.assertEqual(ConfigManager(path).get_appearance(), 'standard')
+
+    def test_recovery_and_cancellation_are_not_celebrated(self):
+        self.assertEqual(emotion_for('notice', 'Text ready — Copy Last Result'), 'concerned')
+        self.assertEqual(emotion_for('notice', 'Cancelled'), 'calm')
+        self.assertEqual(emotion_for('success', 'Text inserted'), 'happy')
+        self.assertIn('COPY LAST', screen_hint('notice', 'Selection changed — edit kept for copying', ''))
+
+    def test_distinct_active_emotes_and_screen_hints(self):
+        self.assertEqual(len({emotion_for(mode, '') for mode in
+                              ('listening', 'editing', 'processing', 'meeting')}), 4)
+        self.assertEqual(screen_hint('editing', '', 'DE · esc'), 'DE · ESC')
 
 
 class AudioMeterTests(unittest.TestCase):

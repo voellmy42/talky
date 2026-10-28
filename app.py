@@ -58,6 +58,12 @@ class _MenuTarget(AppKit.NSObject):
     _ai_install_fn = None
     _ai_cancel_fn = None
     _preview_fn = None
+    _appearance_fn = None
+
+    @objc.typedSelector(b"v@:@")
+    def selectAppearance_(self, sender):
+        if self._appearance_fn:
+            self._appearance_fn(sender.representedObject())
 
     @objc.typedSelector(b"v@:@")
     def previewAppearance_(self, sender):
@@ -344,8 +350,24 @@ class StatusBarController:
         preview_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             'Preview Appearance…', 'previewAppearance:', '')
         preview_item.setTarget_(self._menu_target)
+        self._appearance_items = {}
+        appearance_menu = AppKit.NSMenu.alloc().init()
+        for code, title in (('standard', 'Standard'), ('fun', 'Fun · Walkie-talkie')):
+            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, 'selectAppearance:', '')
+            item.setRepresentedObject_(code)
+            item.setTarget_(self._menu_target)
+            appearance_menu.addItem_(item)
+            self._appearance_items[code] = item
+        appearance_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_('Appearance', None, '')
+        appearance_item.setSubmenu_(appearance_menu)
+        menu.insertItem_atIndex_(appearance_item, menu.indexOfItem_(quit_item))
+        self.update_appearance(self._config.get_appearance())
         menu.insertItem_atIndex_(preview_item, menu.indexOfItem_(quit_item))
         self._status_item.setMenu_(menu)
+
+    def update_appearance(self, style):
+        for code, item in self._appearance_items.items():
+            item.setState_(AppKit.NSControlStateValueOn if code == style else AppKit.NSControlStateValueOff)
 
     def _update_lang_checks(self):
         for code, item in self._lang_items.items():
@@ -494,12 +516,13 @@ class _SetupTarget(AppKit.NSObject):
 class SetupWizard:
     """Two-page onboarding wizard: welcome screen then setup checklist."""
 
-    def __init__(self, on_complete):
+    def __init__(self, on_complete, on_preview=None):
         """
         on_complete — callable invoked (on main thread) when the user
         clicks 'Complete Setup' and all checks pass.
         """
         self._on_complete = on_complete
+        self._on_preview = on_preview
 
         width, height = 480, 400
         screen = AppKit.NSScreen.mainScreen().frame()
@@ -591,6 +614,9 @@ class SetupWizard:
         self._window.setContentView_(content)
 
     def _show_preview(self):
+        if self._on_preview:
+            self._on_preview()
+            return
         from tools.ui_preview import VisualPreview
         if self._preview is None:
             self._preview = VisualPreview()
@@ -846,7 +872,7 @@ class TalkyApp:
         self._app = AppKit.NSApplication.sharedApplication()
         self._app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
 
-        self.overlay = OverlayWindow()
+        self.overlay = OverlayWindow(style=self._config.get_appearance())
         self.status_bar = StatusBarController(on_quit=self._quit, config=self._config)
         self._wizard = None
         self._controller = None
@@ -856,6 +882,7 @@ class TalkyApp:
         self._ai_download_prompt_open = False
         self._preview = None
         self.status_bar._menu_target._preview_fn = self._show_preview
+        self.status_bar._menu_target._appearance_fn = self._set_appearance
         self.status_bar.on_ai_editing_change = self._ai_editing_changed
         self.status_bar._menu_target._ai_install_fn = self._install_ai
         self.status_bar._menu_target._ai_cancel_fn = self._cancel_ai_download
@@ -885,22 +912,33 @@ class TalkyApp:
         if self._preview:
             self._preview.close()
 
+    def _set_appearance(self, style):
+        self._config.set_appearance(style)
+        self.overlay.set_style(style)
+        self.status_bar.update_appearance(style)
+        if self._preview:
+            self._preview.set_style(style)
+
     def _show_preview(self):
         if self._session_state not in ('ready', 'loading', 'error') or self.status_bar._meeting_active:
             self._show_notice('Finish voice input before opening the preview')
             return
         from tools.ui_preview import VisualPreview
         if self._preview is None:
-            self._preview = VisualPreview()
+            self._preview = VisualPreview(style=self._config.get_appearance())
+        if self._notice_timer:
+            self._notice_timer.invalidate()
+            self._notice_timer = None
         self.overlay.hide()
         self._preview.show()
 
     def _show_wizard(self):
-        self._wizard = SetupWizard(on_complete=self._on_setup_complete)
+        self._wizard = SetupWizard(on_complete=self._on_setup_complete, on_preview=self._show_preview)
         self._wizard.show()
 
     def _on_setup_complete(self):
         """Called on main thread when wizard finishes."""
+        self._stop_preview()
         self._config.mark_setup_complete()
         self._needs_setup = False
         self._wizard = None

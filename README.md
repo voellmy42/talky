@@ -109,10 +109,19 @@ Talky unifies standard dictation and AI text modification under a single shortcu
 
 ## Appearance Preview
 
+Choose **Appearance → Standard / Fun · Walkie-talkie** in the Talky menu. Standard
+is the default; your choice is remembered. Fun mode is a friendly gold walkie-talkie
+with a green pixel monitor, live waveform and expressions for listening, voice
+editing, thinking, completion, recovery and cancellation. It appears during activity
+and brief result feedback, then disappears. Its body stays anchored; only small
+antenna movements and pixel expressions animate. Reduce Motion keeps it still.
+
 Choose **Preview Appearance…** in the Talky menu, or **Preview appearance** on
-its welcome screen. Try every visual state and **Play all states** without granting
+its welcome screen. Compare **Standard** and **Fun**, try every visual state and
+**Play all states** without granting
 microphone permission. All audio levels in this window are simulated; it does not
-record, download models, read selections or paste text. Close the preview to stop it.
+record, download models, read selections or paste text. Previewing a style does not
+change your saved appearance. Close the preview to stop it.
 
 From source, run `.venv-mlx/bin/python -m tools.ui_preview`. Packaged builds also
 support `/Applications/Talky.app/Contents/MacOS/Talky --preview-ui`.

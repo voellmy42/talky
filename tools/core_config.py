@@ -9,6 +9,7 @@ class ConfigManager:
     VALID_LANGUAGES = {"de", "en"}
     VALID_FORMATTING_MODES = {"fast", "polished"}
     VALID_TOGGLE_SHORTCUTS = {'section', 'ctrl_shift_space', 'off'}
+    VALID_APPEARANCES = {'standard', 'fun'}
 
     def __init__(self, path="~/.talky_config.json"):
         self._path = os.path.expanduser(path)
@@ -54,6 +55,16 @@ class ConfigManager:
     def get_language(self) -> str:
         language = self._data.get("language", "en")
         return language if language in self.VALID_LANGUAGES else "en"
+
+    def get_appearance(self):
+        value = self._data.get('appearance', 'standard')
+        return value if isinstance(value, str) and value in self.VALID_APPEARANCES else 'standard'
+
+    def set_appearance(self, value):
+        if not isinstance(value, str) or value not in self.VALID_APPEARANCES:
+            raise ValueError('Unknown appearance')
+        self._data['appearance'] = value
+        self.save()
 
     def set_language(self, language: str):
         if language not in self.VALID_LANGUAGES:

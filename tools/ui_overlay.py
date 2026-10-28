@@ -54,7 +54,7 @@ class _Panel(AppKit.NSPanel):
 class OverlayWindow:
     WIDTH, HEIGHT = 344, 60
 
-    def __init__(self):
+    def __init__(self, style='standard'):
         width, height = self.WIDTH, self.HEIGHT
         self._window = _Panel.alloc().initWithContentRect_styleMask_backing_defer_(
             AppKit.NSMakeRect(0, 0, width, height),
@@ -102,11 +102,32 @@ class OverlayWindow:
         self._level = 0.0
         self._last_text = None
         self._last_tick = time.monotonic()
+        self._state_started = self._last_tick
+        self._style = 'standard'
+        self._fun = None
         self.level_source = lambda: 0.0
         self._display_observer = None
         self._observe_display()
         self._position()
         self.update_text('Ready')
+        self.set_style(style)
+
+    def set_style(self, style):
+        if style not in ('standard', 'fun'):
+            raise ValueError('Unknown appearance')
+        self._style = style
+        if style == 'fun' and self._fun is None:
+            from tools.ui_fun import FunCharacter
+            self._fun = FunCharacter(self._window.contentView())
+        self.WIDTH, self.HEIGHT = (260, 200) if style == 'fun' else (344, 60)
+        self._window.setContentSize_(AppKit.NSMakeSize(self.WIDTH, self.HEIGHT))
+        for view in (self._bg, self._icon, self._label, self._detail, self._badge):
+            view.setHidden_(style == 'fun')
+        if self._fun:
+            self._fun.view.setHidden_(style != 'fun')
+        self.update_text(self._last_text or 'Ready')
+        if self._visible:
+            self._position()
 
     def _observe_display(self):
         if self._display_observer is None:
@@ -149,6 +170,8 @@ class OverlayWindow:
 
     def update_text(self, text):
         title, detail, language, self._mode, symbol = presentation(text)
+        if text != self._last_text:
+            self._state_started = time.monotonic()
         if text != self._last_text and self._visible and not self._reduced():
             for label in (self._label, self._detail):
                 transition = Quartz.CATransition.animation()
@@ -177,12 +200,18 @@ class OverlayWindow:
                        'notice': AppKit.NSColor.systemOrangeColor(),
                        'success': AppKit.NSColor.systemGreenColor()}[self._mode]
         self._icon.setContentTintColor_(self._color)
+        if self._fun and self._style == 'fun':
+            self._fun.update(title, self._mode, text, self._badge.stringValue())
         self._refresh_material()
         self._tick(None)
         self._sync_timer()
 
     def _sync_timer(self):
-        moving = self._visible and self._mode in ('listening', 'editing', 'processing') and not self._reduced()
+        animated = self._mode in ('listening', 'editing', 'processing')
+        if self._style == 'fun':
+            animated = animated or self._mode == 'meeting' or (
+                self._mode == 'success' and time.monotonic() - self._state_started < .75)
+        moving = self._visible and animated and not self._reduced()
         if moving and self._timer is None:
             self._timer = AppKit.NSTimer.timerWithTimeInterval_repeats_block_(1 / 30, True, self._tick)
             AppKit.NSRunLoop.mainRunLoop().addTimer_forMode_(self._timer, AppKit.NSRunLoopCommonModes)
@@ -207,9 +236,10 @@ class OverlayWindow:
             bar.setBackgroundColor_(self._color.CGColor())
             bar.setOpacity_(.8)
             bar.setFrame_(AppKit.NSMakeRect(286 + i * 3.8, 19 - height / 2, 2.3, height))
+        if self._fun and self._style == 'fun':
+            self._fun.tick(self._mode, heights, now, reduced, now - self._state_started)
         Quartz.CATransaction.commit()
-        if reduced:
-            self._sync_timer()
+        self._sync_timer()
 
     def show(self, text='Listening…'):
         self._observe_display()

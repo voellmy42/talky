@@ -4,6 +4,7 @@ Run with the project's Python on a logged-in Mac desktop.
 """
 from pathlib import Path
 import sys
+import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -11,6 +12,7 @@ import AppKit
 from Foundation import NSDate, NSRunLoop
 from app import TalkyApp, SetupWizard
 from tools.ui_preview import VisualPreview, STATES
+from tools.core_config import ConfigManager
 
 
 def render(view, path):
@@ -25,7 +27,7 @@ def main():
     output = Path(__file__).resolve().parents[1] / 'build' / 'ui-preview'
     output.mkdir(parents=True, exist_ok=True)
     talky = TalkyApp(lambda *args: None)
-    wizard = SetupWizard(lambda: None)
+    wizard = SetupWizard(lambda: None, on_preview=talky._show_preview)
     preview = None
     try:
         render(wizard._window.contentView(), output / 'welcome.png')
@@ -51,6 +53,16 @@ def main():
         assert talky.status_bar.get_formatting_mode() == 'fast'
         menu = talky.status_bar._status_item.menu()
         assert not any('Polished' in item.title() for item in menu.itemArray())
+        saved_config = talky._config
+        with tempfile.TemporaryDirectory(dir='build') as root:
+            talky._config = ConfigManager(str(Path(root) / 'config.json'))
+            talky._set_appearance('fun')
+            assert talky.overlay._style == 'fun'
+            assert not talky.overlay._visible
+            assert ConfigManager(talky._config._path).get_appearance() == 'fun'
+            assert bool(talky.status_bar._appearance_items['fun'].state())
+            talky._set_appearance('standard')
+        talky._config = saved_config
         for name, text in (('dictating', 'Dictating · EN — Esc to cancel'),
                             ('editing', 'Editing selection · DE — Esc to cancel'),
                             ('applying', 'Applying your edit… Esc to cancel')):
@@ -59,20 +71,42 @@ def main():
         talky.overlay.update_text('Text ready — Copy Last Result')
         render(talky.overlay._window.contentView(), output / 'recovery.png')
         # Test real native animation/lifecycle with synthetic levels, not hardware.
-        preview = VisualPreview()
-        preview.show()
+        wizard._show_preview()
+        preview = talky._preview
+        talky._show_preview()
+        assert talky._preview is preview  # Onboarding and menu share one companion.
+        preview.overlay.level_source = lambda: .8
         key_window = AppKit.NSApplication.sharedApplication().keyWindow()
-        for index, (name, _) in enumerate(STATES):
-            preview.select(index)
-            NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(.2))
-            assert AppKit.NSApplication.sharedApplication().keyWindow() == key_window
-            assert not preview.overlay._window.canBecomeKeyWindow()
-            assert preview.overlay._window.ignoresMouseEvents()
-            for bar in preview.overlay._bars:
-                frame = bar.frame()
-                assert 0 <= frame.origin.x and frame.origin.x + frame.size.width <= preview.overlay.WIDTH
-                assert 0 <= frame.origin.y and frame.origin.y + frame.size.height <= 32
-            render(preview.overlay._window.contentView(), output / ('preview-' + str(index) + '.png'))
+        original_preferences = dict(talky._config._data)
+        for style in ('standard', 'fun'):
+            preview.set_style(style)
+            for index, (name, _) in enumerate(STATES):
+                preview.select(index)
+                NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(.2))
+                assert AppKit.NSApplication.sharedApplication().keyWindow() == key_window
+                assert not preview.overlay._window.canBecomeKeyWindow()
+                assert preview.overlay._window.ignoresMouseEvents()
+                bars = preview.overlay._fun.bars if style == 'fun' else preview.overlay._bars
+                for bar in bars:
+                    frame = bar.frame()
+                    assert 0 <= frame.origin.x and frame.origin.x + frame.size.width <= preview.overlay.WIDTH
+                    assert (84 <= frame.origin.y and frame.origin.y + frame.size.height <= 100) if style == 'fun' else (
+                        0 <= frame.origin.y and frame.origin.y + frame.size.height <= 32)
+                render(preview.overlay._window.contentView(), output / (style + '-' + str(index) + '.png'))
+            if style == 'fun':
+                preview.select(4)
+                NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(.9))
+                assert preview.overlay._timer is None  # Celebration is finite.
+                preview.overlay._motion_override = True
+                preview.select(0)
+                assert preview.overlay._timer is None
+                assert all(bar.frame().size.height == 2 for bar in preview.overlay._fun.bars)
+                render(preview.overlay._window.contentView(), output / 'fun-reduced-motion.png')
+                preview.overlay._motion_override = False
+        assert talky._config._data == original_preferences  # Preview never saves a style.
+        for style in ('standard', 'fun', 'standard'):
+            preview.set_style(style)
+            assert preview.overlay._style == style
         preview.select(0)
         preview.overlay.level_source = lambda: .8
         NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(.3))
@@ -94,6 +128,14 @@ def main():
         preview.overlay.show('Transcribing…')
         NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(.3))
         assert preview.overlay._window.isVisible()  # A stale hide must not remove it.
+        preview.close()
+        preview.set_style('fun')
+        assert not preview.overlay._visible  # Changing a hidden style cannot summon the pet.
+        assert preview.overlay._timer is None
+        assert not preview.overlay._window.isVisible()
+        preview.show()
+        assert preview.overlay._visible
+        preview.close()
         print('Native UI checks passed; previews:', output)
     finally:
         if preview:

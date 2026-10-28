@@ -16,10 +16,15 @@ STATES = (
     ('Complete', 'Text inserted'),
     ('Recovery', 'Text ready — Copy Last Result'),
     ('Meeting', 'Meeting · 02:34'),
+    ('Cancelled', 'Cancelled'),
 )
 
 
 class _PreviewTarget(AppKit.NSObject):
+    @objc.typedSelector(b'v@:@')
+    def style_(self, sender):
+        self.owner.set_style('fun' if sender.tag() else 'standard')
+
     @objc.typedSelector(b'v@:@')
     def choose_(self, sender):
         self.owner.select(sender.tag())
@@ -38,8 +43,8 @@ class _PreviewTarget(AppKit.NSObject):
 
 
 class VisualPreview:
-    def __init__(self, on_close=None):
-        self.overlay = OverlayWindow()
+    def __init__(self, on_close=None, style='standard'):
+        self.overlay = OverlayWindow(style=style)
         self.overlay.level_source = self._sample
         self._on_close = on_close
         self._timer = None
@@ -48,7 +53,7 @@ class VisualPreview:
         self._target = _PreviewTarget.alloc().init()
         self._target.owner = self
         self.window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            AppKit.NSMakeRect(0, 0, 460, 420),
+            AppKit.NSMakeRect(0, 0, 460, 470),
             AppKit.NSWindowStyleMaskTitled | AppKit.NSWindowStyleMaskClosable,
             AppKit.NSBackingStoreBuffered, False)
         self.window.setTitle_('Talky · Appearance Preview')
@@ -57,10 +62,18 @@ class VisualPreview:
         self.window.setDelegate_(self._target)
         self.window.center()
         view = self.window.contentView()
-        self._label(view, 'Small presence. Clear feedback.', (28, 356, 404, 30), 21, True)
-        self._label(view, 'APPEARANCE PREVIEW', (28, 389, 404, 15), 10, True)
-        self._label(view, 'Simulated audio · Microphone stays off\nThe floating capsule appears just above your Dock.',
-                    (28, 303, 404, 43), 12)
+        self._label(view, 'Small presence. Big personality.', (28, 406, 404, 30), 21, True)
+        self._label(view, 'APPEARANCE PREVIEW', (28, 439, 404, 15), 10, True)
+        self._label(view, 'Simulated audio · Microphone stays off\nCompare styles without changing your saved appearance.',
+                    (28, 353, 404, 43), 12)
+        self.style_buttons = []
+        for i, title in enumerate(('Standard', 'Fun · Walkie-talkie')):
+            button = AppKit.NSButton.buttonWithTitle_target_action_(title, self._target, 'style:')
+            button.setTag_(i)
+            button.setFrame_(AppKit.NSMakeRect(24 + i * 208, 302, 204, 34))
+            view.addSubview_(button)
+            self.style_buttons.append(button)
+        self._update_style_buttons()
         self.buttons = []
         for i, (title, _) in enumerate(STATES):
             column, row = i % 2, i // 2
@@ -77,6 +90,18 @@ class VisualPreview:
         replay.setFrame_(AppKit.NSMakeRect(270, 20, 162, 32))
         view.addSubview_(replay)
         self._caption = self._label(view, '', (28, 24, 235, 23), 11)
+
+    def _update_style_buttons(self):
+        for i, button in enumerate(self.style_buttons):
+            selected = ('standard', 'fun')[i] == self.overlay._style
+            button.setState_(AppKit.NSControlStateValueOn if selected else AppKit.NSControlStateValueOff)
+            button.setBezelColor_(AppKit.NSColor.controlAccentColor() if selected else None)
+
+    def set_style(self, style):
+        self.overlay.set_style(style)
+        self._update_style_buttons()
+        if self.window.isVisible():
+            self._display(self.index)
 
     @staticmethod
     def _label(view, text, rect, size, bold=False):
