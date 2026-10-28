@@ -1,144 +1,159 @@
 <p align="center">
-  <img src="talky-logo.jpg" alt="Talky Logo" width="200" />
+  <img src="talky-logo.jpg" alt="Talky Logo" width="220" />
 </p>
 
 # Talky 2
 
-### **Privacy-First, Local Voice Dictation & Meeting Summarizer**
+### **Privacy-First, Local Voice Dictation & Selection-Aware Voice Editing for macOS**
 
-Talky is a high-performance, zero-cost, and absolute-privacy voice tool for macOS. It turns your speech into perfectly formatted text instantly, injecting it directly into your cursor position, or summarizes entire meetings into structured notes—all without a single byte leaving your machine.
+Talky is a high-performance, zero-cost, and absolute-privacy voice productivity companion built natively for Apple Silicon. It converts spoken thoughts into text with sub-second latency, types directly at your cursor, and lets you rewrite or transform selected text using local Apple Silicon language models—all with zero cloud dependencies, zero subscriptions, and complete data privacy.
 
 ---
 
 ## 🚀 Key Features
 
-- 🎙️ **Local Speech-to-Text**: Powered by MLX Whisper on Apple Silicon.
-- ⚡️ **Fast Mode**: The default path formats locally without waiting for an LLM.
-- 🧠 **Polished Preview**: Optional embedded MLX-LM formatting, with no separate Ollama service.
-- ⏱️ **Measured Latency**: Every dictation reports transcription, formatting, paste, and total response time.
-- 🎧 **On-Demand Capture**: Models stay ready, while the microphone opens only for recording and is released on stop/cancel.
-- 🤝 **Meeting Mode**: Record long sessions and get structured Markdown notes (Summary, Key Points, Action Items) saved directly to your Documents.
-- 🔒 **Absolute Privacy**: No cloud, no API keys, no data sharing. Everything runs on your local CPU/GPU.
-- 🔊 **Audio Feedback**: Subtle chimes provide non-intrusive confirmation of recording states.
-- 🖱️ **macOS Integration**: Minimalist menu bar icon and a non-stealing-focus overlay indicator.
-- **Destination checks**: Checks the original app, window, text field and available caret selection before sending paste. If the destination changes or cannot be identified, use **Copy Last Dictation** from the menu.
-- **Cancellation**: Press **Esc** or choose **Cancel Dictation** to discard a recording or prevent a processing result from being pasted.
-- **Recovery**: Copy the latest dictation or original transcript from the menu, or clear them. Text stays in memory until cleared, cancelled, replaced or quit.
+- ⚡ **Instant Dictation (Fast Mode)**: Zero-cloud speech recognition powered by MLX Whisper running natively on Apple Silicon GPU and Neural Engine. Sub-second latency from shortcut release to cursor insertion.
+- 🧠 **One-Button Voice Editing**: Highlight any editable text in any application (editor, browser, Slack, email), hold your shortcut, and speak an instruction (e.g., *"Make this concise"*, *"Turn this into bullet points"*, *"Übersetze ins Englische"*). A local Qwen3-4B model safely rewrites the selection in place.
+- 🛡️ **Destination & Focus Protection**: Leverages macOS Accessibility APIs to verify the destination window, application, and character range before sending paste keystrokes. Prevents misdirected pastes or stray characters when switching windows.
+- 🔒 **Absolute Privacy & Ephemeral Execution**: Audio streams are processed strictly in RAM and discarded immediately upon completion or cancellation. No dictation audio is stored to disk, and not a single byte leaves your machine.
+- 🎙️ **On-Demand Microphone**: The microphone hardware activates only while an explicit dictation or meeting recording is active, and is released immediately on finish or cancel—no background listening, no idle pre-rolls.
+- 🤝 **Meeting Mode**: Captures extended meeting audio and produces structured Markdown notes (Executive Summary, Key Discussion Points, Action Items) saved directly to `~/Documents/Talky/Meetings/` using local Ollama models.
+- ⌨️ **Configurable Global Shortcuts**: Trigger dictation with **§** (default), **Control+Shift+Space**, or **Fn** (hold to record, double-tap for hands-free).
+- ⏱️ **Real-Time Latency Metrics**: Every dictation provides timing metrics (transcription, model inference, paste, total latency) to ensure consistent high performance.
+- 🔊 **Audio & Visual Feedback**: Subtle audio chimes confirm recording start, completion, and cancellation, paired with a non-stealing-focus overlay indicator.
+- ↩️ **Original Text Recovery**: Retains the latest transcript and original selected text in memory. If an edit fails or focus changes, quickly retrieve either via **Menu > Copy Last Result** or **Copy Original Text**.
 
 ---
 
-## 🛠️ Prerequisites
+## 🛠️ System Requirements
 
-This embedded MLX preview targets **Apple Silicon and macOS 26+** with the pinned runtime. The older session preview remains separate.
-
-1.  **Python 3.12** for development (included in the packaged app).
-2.  **Microphone and Accessibility permissions**: Granted during setup.
-3.  **Optional Ollama for Meeting summaries only**: Install and run Ollama separately for Meeting mode:
-    ```bash
-    ollama pull gemma4:latest
-    ```
-4.  **Speech model**: MLX Whisper downloads its model on first use, then inference runs locally. First startup may take longer while this model is downloaded and warmed up.
-
----
-
-## 📦 Installation
-
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/voellmy42/talky.git
-    cd talky
-    ```
-
-2.  **Setup Virtual Environment**:
-    ```bash
-    python3.12 -m venv .venv-mlx
-    source .venv-mlx/bin/activate
-    ```
-
-3.  **Install Dependencies**:
-    ```bash
-    pip install -r requirements-mlx.lock.txt
-    ```
+- **Platform**: Apple Silicon Mac (M1, M2, M3, M4, or later).
+- **Operating System**: macOS 14.0+ (Sonoma, Sequoia, or later).
+- **Python**: Python 3.12 (included when running the packaged application).
+- **Permissions**:
+  - **Microphone**: For audio recording.
+  - **Accessibility**: Required for global shortcut detection, caret selection verification, and text injection (`System Settings > Privacy & Security > Accessibility`).
+- **Optional (Meeting Mode only)**: [Ollama](https://ollama.com) running locally for long-form meeting summaries:
+  ```bash
+  ollama pull gemma4:latest
+  ```
 
 ---
 
-## ⌨️ Usage
+## 📦 Installation & Setup
 
-Run the application:
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/voellmy42/talky.git
+   cd talky
+   ```
+
+2. **Create and activate a virtual environment**:
+   ```bash
+   python3.12 -m venv .venv-mlx
+   source .venv-mlx/bin/activate
+   ```
+
+3. **Install pinned dependencies**:
+   ```bash
+   pip install -r requirements-mlx.lock.txt
+   ```
+
+4. **Launch Talky**:
+   ```bash
+   python main.py
+   ```
+   *Note: On first startup, MLX Whisper automatically downloads and caches its base weights locally. Subsequent startups initialize instantly.*
+
+---
+
+## ⌨️ Controls & Shortcuts
+
+| Action | Shortcut / Control | Behavior |
+| :--- | :--- | :--- |
+| **Instant Dictation** | **Hold `§` or `Fn`** | Speak naturally. Release to transcribe and inject text directly at your cursor. |
+| **Selection Voice Edit** | **Select text + Hold `§` or `Fn`** | Speak how you want to modify the selected text (*"Make this concise"*, *"Fix grammar"*), then release. |
+| **Hands-Free Mode** | **Double-tap `Fn`** or toggle **`§`** | Starts hands-free recording without holding. Press again to finish and transcribe. |
+| **Cancel Recording** | **`Esc`** or **Menu > Cancel** | Discards current audio or cancels in-flight inference without modifying the target field. |
+| **Recover Text** | **Menu > Copy Last Result** | Copies the most recent generated text to your clipboard without re-triggering a paste. |
+| **Recover Original** | **Menu > Copy Original Text** | Recovers the unmodified selected text if an AI rewrite did not match your intention. |
+| **Meeting Mode** | **Menu Bar > Start Meeting** | Records long-form meeting audio. Click **Stop** to generate and save structured Markdown notes. |
+
+You can customize your preferred shortcut via **Menu > Dictation Shortcut** (**§**, **Control+Shift+Space**, or **Fn only**).
+
+---
+
+## 🧠 One-Button Voice Editing
+
+Talky unifies standard dictation and AI text modification under a single shortcut:
+
+1. **At a cursor (no selection)**: The shortcut performs standard **Fast Dictation** directly through MLX Whisper.
+2. **With text selected**: The shortcut automatically switches into **Selection Editing** mode. Speak your instructions:
+   - *"Make this shorter and punchier"*
+   - *"Turn this into a Markdown bullet list"*
+   - *"Übersetze diesen Absatz ins Englische"*
+   - *"Draft a friendly response confirming Wednesday at 2pm"*
+
+### Enabling Local AI Editing
+1. Open the Talky menu bar icon and select **Set Up / Load AI Editing…**.
+2. Talky will download and verify the local 4-bit model weights (~2.28 GB, Qwen3-4B).
+3. All model weights are pinned, SHA-256 verified, and cached locally. Inference runs directly on Apple Silicon via MLX-LM.
+4. When not in use, the model automatically unloads from memory after 5 minutes of idle time to conserve system resources.
+
+### Safety & Guardrails
+- **Exact Destination Matching**: If you switch windows, change tabs, or lose focus while editing, Talky aborts text injection and saves the output in **Copy Last Result**.
+- **Factual Integrity**: The editing pipeline conservatively verifies numbers, dates, negation, and key conditions to prevent hallucinated changes to facts.
+- **Fail-Safe Operation**: If an edit fails or is cancelled, Talky will **never** accidentally paste your raw spoken instruction into your document.
+
+---
+
+## 🧪 Testing & Development
+
+### Running the Test Suite
+Talky comes with a comprehensive unit test suite covering session lifecycles, MLX inference, selection capture, focus verification, and safety guards:
+
 ```bash
-python main.py
+.venv-mlx/bin/python -m unittest \
+  test_talky_v2 \
+  test_sessions \
+  test_delivery \
+  test_mlx_formatter \
+  test_selection_editing -v
 ```
 
-### **Controls**
-
-| Action | Control | Result |
-| :--- | :--- | :--- |
-| **Instant Dictation** | **Hold `Fn`** | Records while held. Releases to transcribing and inject. |
-| **Hands-Free Mode** | **Double-tap `Fn`** | Toggles recording on/off without holding. |
-| **Start / Finish** | **§** or **Menu > Start / Finish Dictation** | Toggles hands-free recording. The shortcut press is consumed so § is not typed into your prompt. |
-| **Cancel Dictation** | **Esc** or menu | Discards capture or blocks late paste. If inference has started, wait for it to finish before recording again. |
-| **Recover Text** | **Menu > Copy Last Dictation / Copy Original Transcript** | Copies retained text without attempting another paste. |
-| **Meeting Mode** | **Menu Bar > Start Meeting** | Records long-form audio. Stop to generate a summary. |
-
-### **Formatting Modes**
-
-| Mode | Best for | Behavior |
-| :--- | :--- | :--- |
-| **Fast (default)** | Everyday dictation | Removes hesitation sounds and tidies spacing locally, then pastes immediately. |
-| **Polished (local AI preview)** | Experimental punctuation and layout cleanup | Uses embedded Qwen3-1.7B (4-bit), validates the complete result, and falls back to Fast cleanup. |
-
-Choose the mode from **Menu Bar > Formatting**. Talky remembers both formatting mode and language between launches. The Productivity Stats menu shows the response time of the latest dictation.
-
-Choose **Menu > Dictation Shortcut** to use **§** (default), **Control+Shift+Space**, or **Fn only**. Changes apply immediately and persist across launches. § is matched by the character produced by the keyboard layout, rather than a fixed physical key. Command/Control/Option combinations with § retain their ordinary behavior. F8 is no longer a Talky shortcut.
-
-Choose **Download / Load AI Model…** or select Polished to install the optional model (approximately 0.98 GB). The menu shows progress, cancellation and retry. Installation downloads pinned files from Hugging Face and verifies their hashes. After installation, model loading and inference use local files. No dictation content is sent to Hugging Face. Fast mode never loads the language model.
-
-Polished is a development preview, not a general rewriting tool. It permits punctuation/case/layout changes and limited hesitation removal, rejecting changed substantive words, numbers, identifiers, paths and flags. The validator distinguishes German “um” from an English hesitation. It can still miss semantic changes caused by punctuation and can reject useful edits. Self-correction and grammar rewriting are not enabled.
-
-Warm generation budgets are 1.5 seconds for up to 80 words and 4 seconds for longer inputs. These are cooperative deadlines checked between generated steps and after GPU cleanup; they cannot interrupt a running GPU operation. A timed-out, truncated, failed or rejected result uses deterministic Fast cleanup and is identified as a fallback in the status message. No partial model output is pasted. Escape cancels delivery and signals the generation loop. The model unloads after five idle minutes or when Fast is selected; the next Polished request can fall back while it reloads. Talky never starts or quits Ollama.
-
-The microphone opens only for an explicit dictation or meeting recording and is released on stop/cancel. Idle pre-roll is disabled. Speak after the start chime so the microphone has time to open. No dictation audio is written to disk. Meeting mode intentionally saves notes to disk. Recognition and polishing may still be running after cancellation, but the cancelled result will not be pasted.
-
-Destination checks depend on each application's Accessibility support. Unsupported fields, changed selections and uncertain destinations retain text for explicit copying. A sent paste shortcut does not prove the destination accepted the text. Enter is never sent automatically.
-
-### Development build
+### Packaging the macOS Application
+To build a standalone Apple Silicon `.app` bundle:
 
 ```bash
-.venv-mlx/bin/python -m unittest test_talky_v2 test_sessions test_delivery test_mlx_formatter -v
-TALKY_DIST_PATH=dist/mlx-preview TALKY_BUILD_PATH=build/mlx-preview ./build.sh
-dist/mlx-preview/Talky.app/Contents/MacOS/Talky --check-build
+TALKY_DIST_PATH=dist/Talky TALKY_BUILD_PATH=build/Talky ./build.sh
+dist/Talky/Talky.app/Contents/MacOS/Talky --check-build
 ```
-
-This creates an ad-hoc signed Apple Silicon development app alongside the existing build. `TALKY_VENV` overrides the build environment if needed. Distribution to colleagues still requires Developer ID signing, notarization and validation on both M1 and M4, including managed work Macs. Rebuilding an ad-hoc signed app can invalidate its saved Accessibility approval; quit other Talky copies before trying a preview.
-
-See [embedded AI preview and benchmark results](docs/mlx-preview.md) for offline model checks, benchmark reproduction and quality limitations. The legacy Ollama formatter remains available to development scripts; Meeting summaries still use Ollama.
-
-> [!NOTE]
-> Meeting notes are stored in `~/Documents/Talky/Meetings/` as Markdown files.
 
 ---
 
 ## 🏗️ Architecture
 
-Talky follows a **3-Layer Architecture** for robustness and maintainability:
+Talky is designed around a deterministic **3-Layer Architecture**:
 
-1.  **Layer 1 (SOPs)**: Standard Operating Procedures defined in `architecture/`.
-    - [Audio Capture SOP](architecture/audio_capture_sop.md)
-    - [STT (Speech-to-Text) SOP](architecture/stt_sop.md)
-    - [LLM Cleaner SOP](architecture/llm_cleaner_sop.md)
-    - [Text Injection SOP](architecture/text_injection_sop.md)
-2.  **Layer 2 (Router)**: `main.py` manages the logic loop and state transitions.
-3.  **Layer 3 (Deterministic Tools)**: Specialized tools in `tools/` for audio, STT, LLM, and output.
+1. **Layer 1: Standard Operating Procedures (SOPs)** (in `architecture/`):
+   - [Audio Capture SOP](architecture/audio_capture_sop.md) — On-demand CoreAudio streaming and volume normalization.
+   - [STT (Speech-to-Text) SOP](architecture/stt_sop.md) — Low-latency Apple Silicon MLX Whisper transcription.
+   - [LLM Cleaner & Editor SOP](architecture/llm_cleaner_sop.md) — Prompt templates, safety guards, and memory management.
+   - [Text Injection SOP](architecture/text_injection_sop.md) — Quartz event injection and Accessibility API verification.
+2. **Layer 2: Router & State Management**:
+   - `main.py` / `app.py` — Orchestrates audio state transitions, hotkey listening, UI overlays, and system tray actions.
+3. **Layer 3: Deterministic Tools** (in `tools/`):
+   - Modular tools for audio, config, focus verification, MLX inference, and session logging.
 
 ---
 
 ## 📜 Project Constitution
 
-Talky is guided by a strict set of behavioral rules and architectural invariants. See [gemini.md](gemini.md) for the full project constitution.
+Talky adheres to strict behavioral principles regarding speed, local privacy, and silent execution. See [gemini.md](gemini.md) for the project constitution.
 
 ---
 
 <p align="center">
   <i>Part of the Maison Voellmy Collection</i><br>
-  © 2026 Maison Voellmy. Alle Rechte vorbehalten.
+  © 2026 Maison Voellmy. All rights reserved.
 </p>

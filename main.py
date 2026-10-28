@@ -67,7 +67,7 @@ def main():
     needs_setup = _needs_setup()
 
     stt_tool = STTTool(model_size="small", compute_type="int8")
-    llm_tool = EmbeddedFormatter(ModelStore())
+    llm_tool = EmbeddedFormatter(ModelStore('qwen3-4b'))
     focus_tracker = FocusTracker()
     output_tool = OutputInjector(focus_tracker=focus_tracker)
     stats_store = StatsStore()
@@ -102,17 +102,29 @@ def main():
         import numpy as np
         print("--- Warming up models ---", flush=True)
         stt_tool.transcribe(np.zeros(16000, dtype=np.float32), is_warmup=True)
-        if get_formatting_mode() == 'polished':
+        if app_ref.status_bar.get_ai_editing_enabled():
             llm_tool.set_enabled(True)
 
         def _on_start():
             chime.play_start()
 
+        def begin_capture():
+            target = focus_tracker.capture()
+            if target and target.selected_text:
+                if not app_ref.status_bar.get_ai_editing_enabled():
+                    app_ref._show_notice('Enable AI selection editing in the Talky menu')
+                    return False
+                if llm_tool.state in ('not_installed', 'downloading'):
+                    app_ref._show_notice('Set up AI editing first' if llm_tool.state == 'not_installed'
+                                         else 'AI model downloading — wait for Local AI ready')
+                    return False
+                llm_tool.set_enabled(True)
+            return controller.begin(target, get_language(), 'fast')
+
         audio_tool = AudioCaptureTool(
             hotkey='fn',
             on_record_start=_on_start,
-            on_capture_request=lambda: controller.begin(
-                focus_tracker.capture(), get_language(), get_formatting_mode()),
+            on_capture_request=begin_capture,
             on_cancel=controller.cancel,
             on_busy=lambda: app_ref._show_notice("Processing… Esc to cancel"),
             get_toggle_shortcut=app_ref.status_bar.get_toggle_shortcut,
@@ -198,9 +210,10 @@ def main():
                                       timings.get('release_to_result_seconds', 0.0))
                 print('[latency] ' + ' '.join(f'{key}={value:.3f}s'
                                              for key, value in timings.items()), flush=True)
-                stats_store.add_dictation(len(audio_buffer) / 16000.0,
-                                          len(result.text.split()), elapsed)
-                on_stats_update(stats_store.get_formatted_stats())
+                if result.mode == 'dictation':
+                    stats_store.add_dictation(len(audio_buffer) / 16000.0,
+                                              len(result.text.split()), elapsed)
+                    on_stats_update(stats_store.get_formatted_stats())
 
     app = TalkyApp(pipeline_loop, needs_setup=needs_setup)
     app.run()
@@ -214,9 +227,9 @@ if __name__ == "__main__":
         parser.add_argument('--check-ai-download', action='store_true')
         parser.add_argument('--model-root', required=True)
         args = parser.parse_args()
-        manifest = ModelStore().manifest
+        manifest = ModelStore('qwen3-4b').manifest
         manifest = dict(manifest, files=[entry for entry in manifest['files'] if entry['name'] == 'config.json'])
-        formatter = EmbeddedFormatter(ModelStore(root=args.model_root, manifest=manifest))
+        formatter = EmbeddedFormatter(ModelStore('qwen3-4b', root=args.model_root, manifest=manifest))
         try:
             formatter.install().result()
             if formatter.state != 'unloaded':
@@ -230,7 +243,7 @@ if __name__ == "__main__":
         parser.add_argument('--check-ai-model', action='store_true')
         parser.add_argument('--model-root', required=True)
         args = parser.parse_args()
-        formatter = EmbeddedFormatter(ModelStore(root=args.model_root))
+        formatter = EmbeddedFormatter(ModelStore('qwen3-4b', root=args.model_root))
         try:
             pending = formatter.set_enabled(True)
             assert pending is not None, 'Install the pinned model first'
@@ -238,7 +251,10 @@ if __name__ == "__main__":
             assert formatter.state == 'ready', formatter.message
             result = formatter.format_session('hello world', mode='polished', budget=10)
             assert result.reason == 'accepted', result.reason
-            print('Talky offline AI check passed (local model, tokenizer, generation and validation).', flush=True)
+            edited = formatter.edit_session('Please review the changes by Friday.',
+                                            'Translate this into German.', budget=20)
+            assert edited.outcome == 'edited' and 'Freitag' in edited.text, edited.reason
+            print('Talky offline AI check passed (dictation formatting and selection editing).', flush=True)
         finally:
             formatter.close()
     elif '--check-build' in sys.argv:

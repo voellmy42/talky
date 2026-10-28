@@ -45,3 +45,9 @@ env/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# IDEs and AI tools
+.claude/
+.gemini/
+.idea/
+.vscode/

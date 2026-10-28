@@ -68,6 +68,7 @@ a = Analysis(
         'tools.core_model_store',
         'tools.core_inference',
         'tools.core_memory',
+        'tools.core_edit_policy',
         'tools.core_output',
         'tools.core_focus',
         'tools.core_session',
@@ -129,8 +130,8 @@ app = BUNDLE(
     info_plist={
         'LSUIElement': True,
         'CFBundleDisplayName': 'Talky',
-        'CFBundleShortVersionString': '2.1.1',
-        'CFBundleVersion': '2.1.1',
+        'CFBundleShortVersionString': '2.2.0',
+        'CFBundleVersion': '2.2.0',
         'LSMinimumSystemVersion': '26.0',
         'NSMicrophoneUsageDescription': 'Talky needs microphone access for speech-to-text dictation.',
     },

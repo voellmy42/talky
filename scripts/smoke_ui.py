@@ -46,7 +46,15 @@ def main():
             talky.status_bar.set_ai_status(state, state)
             assert bool(talky.status_bar._ai_install_item.isEnabled()) == (state not in ('downloading', 'loading', 'ready'))
             assert bool(talky.status_bar._ai_cancel_item.isEnabled()) == (state == 'downloading')
-        talky.overlay.update_text('Text ready — Copy Last Dictation')
+        assert talky.status_bar.get_formatting_mode() == 'fast'
+        menu = talky.status_bar._status_item.menu()
+        assert not any('Polished' in item.title() for item in menu.itemArray())
+        for name, text in (('dictating', 'Dictating · EN — Esc to cancel'),
+                            ('editing', 'Editing selection · DE — Esc to cancel'),
+                            ('applying', 'Applying your edit… Esc to cancel')):
+            talky.overlay.update_text(text)
+            render(talky.overlay._window.contentView(), output / (name + '.png'))
+        talky.overlay.update_text('Text ready — Copy Last Result')
         render(talky.overlay._window.contentView(), output / 'recovery.png')
         print('Native UI checks passed; previews:', output)
     finally:
